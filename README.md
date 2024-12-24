@@ -65,6 +65,6 @@ Pod Windows:
     * nadanie numeru dla każdego survivor-a [Host]
     * przepisanie względem maski i new_blocks_nodes i new_blocks_edges survivorów [Device]
     * stworzenie i wpisanie do nowej populacji offspring (work in progress) [Device]
-    * podobnie mutacje [Device]
+    * podobnie mutacje (tutaj innovation number nowych krawędzi i nodów może być wcześniej przyznane na podstawie gdzie offset to najnowszy innovation number offset + threadId, podobnie dla node) [Device] 
     * powrót do punktu 2. jeżeli nie osiągnięto max liczby iteracji.
 

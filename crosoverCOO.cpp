@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 
-int countOffsprings(int *first_pair, int *second_pair, int no_offsprings, int *innov, int *blocks_edges, int no_instances, int *length_offspring, int offset)
+void countOffsprings(int *first_pair, int *second_pair, int no_offsprings, int *innov, int *blocks_edges, int no_instances, int *length_offspring, int offset)
 {
     for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie
         int first = first_pair[i];
@@ -110,9 +110,103 @@ void crossover(
     bool *new_enabled,
     int *new_innov,
     int *new_translation,
-    int *translation_t
+    int *translation,
+    int *translation_t // jako __shared__ ?
     ){
-    
+    for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie
+        int first = first_pair[i];
+        int second = second_pair[i];
+        int idx_first = blocks_nodes[first];
+        int idx_second = blocks_nodes[second];
+        int idx = 0;
+        // nodes translations
+        while(idx_first != blocks_nodes[first+1] && idx_second != blocks_nodes[second+1]){
+            if(translation[idx_first] == translation[idx_second]){
+                new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_first];
+                translation_t[idx_first] = idx;
+                translation_t[idx_second] = idx;
+                idx++;
+                idx_first++;
+                idx_second++;
+            }else if(translation[idx_first] < translation[idx_second]){
+                new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_first];
+                translation_t[idx_first] = idx;
+                idx++;
+                idx_first++;
+            }else{
+                new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_second];
+                translation_t[idx_second] = idx;
+                idx++;
+                idx_second++;
+            }
+        }
+        while(idx_first != blocks_nodes[first+1]){
+            new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_first];
+            translation_t[idx_first] = idx;
+            idx++;
+            idx_first++;
+        }
+        while(idx_second != blocks_nodes[second+1]){
+            new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_second];
+            translation_t[idx_second] = idx;
+            idx++;
+            idx_second++;
+        }
+
+        // edges
+        idx_first = blocks_edges[first];
+        idx_second = blocks_edges[second];
+        idx = 0;
+        while(idx_first != blocks_edges[first+1] && idx_second != blocks_edges[second+1]){
+            
+            if(innov[idx_first] == innov[idx_second]){ // innov - only innovation number differs edges
+                new_w[idx+new_blocks_edges[i+offset]] = w[idx_first];
+                new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_first];
+                new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_first];
+                new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_first]];
+                new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_first]];
+                idx_first++;
+                idx_second++;
+                idx++;
+            }else if(innov[idx_first] < innov[idx_second]){
+                new_w[idx+new_blocks_edges[i+offset]] = w[idx_first];
+                new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_first];
+                new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_first];
+                new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_first]];
+                new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_first]];
+                idx_first++;
+                idx++;
+            }else{
+                new_w[idx+new_blocks_edges[i+offset]] = w[idx_second];
+                new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_second];
+                new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_second];
+                new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_second]];
+                new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_second]];
+                idx_second++;
+                idx++;
+            }
+
+        }
+        while(idx_first != blocks_edges[first+1]){
+            new_w[idx+new_blocks_edges[i+offset]] = w[idx_first];
+            new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_first];
+            new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_first];
+            new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_first]];
+            new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_first]];
+            idx_first++;
+            idx++;
+        }
+        while(idx_second != blocks_edges[second+1]){
+            new_w[idx+new_blocks_edges[i+offset]] = w[idx_second];
+            new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_second];
+            new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_second];
+            new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_second]];
+            new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_second]];
+            idx_second++;
+            idx++;
+        }
+    }
+
 
 }
 
@@ -137,10 +231,6 @@ void test_crosover(){
     int *second_pair; // second parent: size no_offsprings
     int *length_offspring; // size no_offsprings
     int *length_offspring_nodes; // size no_offsprings
-
-    int *length_survivors; // size no_survivors
-    int *length_survivors_nodes; // size no_survivors
-
 
     
     int *istance_numbers_seq; // tablica numeru instancji mapowanej ze starej do nowej tablicy szie: no_survivors
@@ -187,6 +277,29 @@ void test_crosover(){
     // tytaj będzie tworzenie potomków
     int *translation_t;
     translation_t = (int*)malloc(blocks_nodes[no_instances]*sizeof(int)); // temporary translation table for crossover
+    crossover(
+    blocks_nodes,
+    blocks_edges,
+    new_blocks_nodes,
+    new_blocks_edges,
+    no_survivors, // offset
+    in,
+    out,
+    w,
+    enabled,
+    innov,
+    first_pair,
+    second_pair,
+    no_offsprings,
+    new_in,
+    new_out,
+    new_w,
+    new_enabled,
+    new_innov,
+    new_translation,
+    translation,
+    translation_t // jako __shared__ ?
+    );
 
 
 
