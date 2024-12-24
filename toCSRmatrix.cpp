@@ -6,7 +6,7 @@ void updateRowPointers(int *row_pointers, int *out, int *blocks_edges, int *bloc
     int idx = 0; // granulacja na poziomie idx per kernel
     for(int i=0; i<blocks_edges[no_instances]; i++){
         while(blocks_edges[idx+1]<=i) idx++;
-        if((out[i])+blocks_nodes[idx]+1 == 3) printf("%d\t%d\t%d\n", i, idx, out[i]);
+        // if((out[i])+blocks_nodes[idx]+1 == 3) printf("%d\t%d\t%d\n", i, idx, out[i]);
         row_pointers[(out[i])+blocks_nodes[idx]+1] +=1;
     }
     for(int i=0; i<blocks_nodes[no_instances]; i++){
