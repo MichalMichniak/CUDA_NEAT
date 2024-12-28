@@ -4,7 +4,7 @@
 
 void countOffsprings(int *first_pair, int *second_pair, int no_offsprings, int *innov, int *blocks_edges, int no_instances, int *length_offspring, int offset)
 {
-    for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie
+    for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie TODO:
         int first = first_pair[i];
         int second = second_pair[i];
         int idx_first = blocks_edges[first];
@@ -44,7 +44,7 @@ void countOffsprings(int *first_pair, int *second_pair, int no_offsprings, int *
 }
 
 void countOffspringsNodes(int *first_pair, int *second_pair, int no_offsprings, int *translation, int *blocks_nodes, int no_instances, int *length_offspringNodes, int offset){
-    for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie
+    for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie TODO:
         int first = first_pair[i];
         int second = second_pair[i];
         int idx_first = blocks_nodes[first];
@@ -74,7 +74,7 @@ void countOffspringsNodes(int *first_pair, int *second_pair, int no_offsprings, 
 }
 
 void countSurvivors(int *blocks_edges, int *blocks_nodes, int *new_blocks_edges, int *new_blocks_nodes, int no_survivors, int *no_instance_seq){
-    for(int i=0; i<no_survivors; i++){// zrównoleglenie
+    for(int i=0; i<no_survivors; i++){// zrównoleglenie TODO:
         int instance_number = no_instance_seq[i];
         new_blocks_nodes[1+i] = blocks_nodes[instance_number+1]-blocks_nodes[instance_number];
         new_blocks_edges[1+i] = blocks_edges[instance_number+1]-blocks_edges[instance_number];
@@ -85,7 +85,7 @@ void copySurvivors(int *istance_numbers_seq, int *blocks_edges, int *blocks_node
     int *new_in, int *new_out, float *new_w, bool *new_enabled, int *new_innov, int *new_translation, 
     int *in, int *out, float *w, bool *enabled, int *innov, int *translation){
 
-    for(int i=0; i<no_survivors; i++){ // tutaj zrównoleglenie
+    for(int i=0; i<no_survivors; i++){ // tutaj zrównoleglenie TODO:
         // 
         for(int j=0; j<new_blocks_edges[i+1] - new_blocks_edges[i]; j++){
             new_in[j+new_blocks_edges[i]] = in[j + blocks_edges[istance_numbers_seq[i]]];
@@ -121,9 +121,9 @@ void crossover(
     int *new_innov,
     int *new_translation,
     int *translation,
-    int *translation_t // jako __shared__ ?
+    int *translation_t
     ){
-    for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie
+    for(int i=0; i<no_offsprings; i++){ // tutaj zrównoleglenie TODO:
         int first = first_pair[i];
         int second = second_pair[i];
         int idx_first = blocks_nodes[first];
@@ -233,20 +233,56 @@ void test_crosover(){
     if (plik == NULL) {
         return;
     }
+    /*
+    ########## wektory Populacji wejściowej ##########
+    int no_instances - ilość instancji wejściowych
+    int *blocks_nodes - hstogram skumulowany ilości wierzchołków (node) instancji (zaczynający się od 0) [0, end_1 + 1, end_1 + end_2 + 1, ...] (długość no_instances+1)
+    int *translation - mapowanie odcinków liczb naturalnych [0,n] do rzeczywistych numerów wierzchołków   (zał że w instancjach posortowane rosnąco) (długość blocks_nodes[no_instances])
+    int *blocks_edges - hstogram skumulowany ilości krawędzi (edges) instancji (długość no_instances+1)
+    int *in - wejścia synaps (krawędzi/edges) instancji zmapowane do odcinka [0,n] (długość blocks_edge[no_instances])
+    int *out - wejścia synaps (krawędzi/edges) instancji zmapowane do odcinka [0,n] (długość blocks_edge[no_instances])
+    float *w - wagi synaps (krawędzi/edges) instancji
+    bool *enabled - czy dane krawędzie są enabled (true jeżeli biorą udział w ewaluacji, false jeżeli nie biorą udziału w ewaluacji)
+    int *innov - innovation number unikatowy numer rozróżniający krawędzie pomiędzy genami
+    
+    
+    ########## wektory wejściowe z algorytmu genetycznego ##########
+    int *mask - bitowa maska 0 znaczy że instancja nie przechodzi do następnej populacji 1 że przechodzi // mask which survives
+    int no_survivors - ilość instancji która przetrwa (ilość jedynek w int *mask)
+    int no_mutations - ilość instancji z mutacji
+    int no_offsprings - ilość instancji z krzyżowania
+    int *first_pair - numer pierwszego rodzica każdy index odpowiada jednemu potomkowi(długość no_offsprings)
+    int *second_pair - numer drugiego rodzica każdy index odpowiada jednemu potomkowi(długość no_offsprings)
+    
+    ########## wektory Populacji wyjściowej (po definicje patrz "wektory Populacji wejściowej") ########## (To mamy zwrócić)
+    int *new_blocks_nodes - długość no_survivors + no_offsprings + no_mutations
+    int *new_blocks_edges - długość no_survivors + no_offsprings + no_mutations
+    int *new_in
+    int *new_out 
+    float *new_w 
+    bool *new_enabled 
+    int *new_innov 
+    int new_no_instances - długość survivors + offsprings + mutated
+    int *new_translation 
+
+    ######### Wektory pomocnicze ##########
+    int *istance_numbers_seq - funkcja LUT do mapowania [0,długość survivors) w numery instancji które przechodzą do następnej populacji
+    int *translation_t - tymczasowa funkcja mapująca stare indexy w nowe używana w krzyżowaniu (długość translation)
+    */
 
     int *in;
     int *out;
     float *w;
-    bool *enabled; // not yet implemented
-    int *innov; // not yet implemented
-    
+    bool *enabled;
+    int *innov; 
+
     int no_instances;
     int *blocks_edges;
     int *translation; // zał że w instancjach posortowane rosnąco
     int *blocks_nodes;
     int *mask; // mask which survives
     int no_survivors; // number of 1 in mask
-    int no_mutations = 0;
+    int no_mutations = 0; // TODO: mutacia
 
     int no_offsprings; // ze starej populacji
     int *first_pair; // first parent: size no_offsprings
@@ -341,7 +377,7 @@ void test_crosover(){
     
     countOffspringsNodes(first_pair, second_pair, no_offsprings, translation, blocks_nodes, no_instances, new_blocks_nodes, no_survivors + 1);
     // TODO: mutations
-        
+    
     
     for(int i = 0; i<no_survivors+no_offsprings+no_mutations; i++){// liczenie histogramu skumulowanego (można zrównoleglić)
         new_blocks_nodes[i+1] = new_blocks_nodes[i+1] + new_blocks_nodes[i];
@@ -351,8 +387,8 @@ void test_crosover(){
     int *new_in;
     int *new_out;
     float *new_w;
-    bool *new_enabled; // not yet implemented
-    int *new_innov; // not yet implemented
+    bool *new_enabled;
+    int *new_innov;
     int new_no_instances; // survivors + offsprings + mutated
     int *new_translation; // 
     new_no_instances = no_survivors + no_offsprings + no_mutations;
@@ -390,7 +426,7 @@ void test_crosover(){
     new_innov,
     new_translation,
     translation,
-    translation_t // jako __shared__ ?
+    translation_t 
     );
 
     printf("\nnew block nodes: ");
