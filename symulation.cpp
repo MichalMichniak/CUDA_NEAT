@@ -86,6 +86,7 @@ public:
 };
 void update_colisions(bool* colision, int* rewards, float* y, float x, int y_upper_pipe, int y_bottom_pipe, int x_pipe, int r_pipe, int no_instances){
     for(int i=0; i<no_instances; i++){ // TODO: zrównoleglenie na i
+        // printf("%f\n",y[i]);
         if(((x + FLOPPY_RADIUS >=x_pipe-r_pipe && x-FLOPPY_RADIUS<=x_pipe+r_pipe) && (y[i]-FLOPPY_RADIUS<=y_upper_pipe || y[i]+FLOPPY_RADIUS>=HEIGHT-y_bottom_pipe)) || (y[i]>=HEIGHT-FLOPPY_RADIUS || y[i]<=0+FLOPPY_RADIUS)){
             colision[i] = true;
         }
@@ -103,6 +104,7 @@ void update_step(float* vel_y, float* y, float* vect_out,int *blocks_nodes, int 
         float g = 0.1;
         float flop_v = 4;
         vel_y[i] += g;
+        // printf("%d\t%f\n",i, vect_out[blocks_nodes[i]]);
         if(vect_out[blocks_nodes[i]]>0.5){
             vel_y[i] = -flop_v;
         }
@@ -112,12 +114,13 @@ void update_step(float* vel_y, float* y, float* vect_out,int *blocks_nodes, int 
 
 void update_instance_inputs(int *blocks_nodes, float* vect_in, int y_upper_pipe, int y_bottom_pipe, int x_pipe, float x, float* y, int no_instances){
     for(int i=0; i<no_instances; i++){ // TODO: zrównoleglenie na i
-        float x1 = x_pipe - x;
-        float x2 = y_bottom_pipe - y[i];
-        float x3 = y[i] - y_upper_pipe;
+        float x1 = (x_pipe - x)/400.0;
+        float x2 = (y_bottom_pipe - y[i])/600.0;
+        float x3 = (y[i] - y_upper_pipe)/600.0;
         vect_in[blocks_nodes[i] + 1] = x1;
         vect_in[blocks_nodes[i] + 2] = x2;
         vect_in[blocks_nodes[i] + 3] = x3;
+        // printf("%d\t%d\t%f\t%f\t%f\n",i, blocks_nodes[i],vect_in[blocks_nodes[i] + 1],vect_in[blocks_nodes[i] + 2],vect_in[blocks_nodes[i] + 3]);
     }
 }
 
@@ -151,12 +154,13 @@ void symulate(int *blocks_nodes, int* column_idx, int* row_pointers, float* weig
     for(int i=0; i<blocks_nodes[no_instances]; i++) vect_out[i] = 0;
     for(int i=0; i<blocks_nodes[no_instances]; i++) vect_in[i] = 0;
     // koniec inicjalizacji
-    
+    printf("\n");
     for(int it = 0; it < max_iterations; it++){ // główna pętla
 
         update_colisions(colision, rewards, y, x, now.getYUpper(), now.getYBottom(), now.getX(), now.getR(), no_instances);
         bool STOP = false;
-        for(int s=0; s<no_instances; s++) STOP |= ~colision[s]; // maybe zrównoleglenie? ale nie trzeba
+        for(int s=0; s<no_instances; s++) STOP = STOP || !colision[s]; // maybe zrównoleglenie? ale nie trzeba
+        // printf("%d\t%d\n", STOP, it);
         if(!STOP) break;
         // #### UPDATE ENV ####
         if(x - FLOPPY_RADIUS > now.getX() + now.getR()){
@@ -171,9 +175,15 @@ void symulate(int *blocks_nodes, int* column_idx, int* row_pointers, float* weig
         vect_in = vect_out;
         vect_out = vect_temp; // swap important as not to allocate memory (everything on device side)
         for(int i=0; i<blocks_nodes[no_instances]; i++) vect_out[i] = 0;
-
         update_instance_inputs(blocks_nodes, vect_in, now.getYUpper(), now.getYBottom(), now.getX(), x, y, no_instances);
+        // printf("\nbefore");
+        // for(int i=0; i<blocks_nodes[no_instances]; i++) printf("%.2f\t",vect_in[i]);
+        // printf("\n");
+        
         SparseMUL(column_idx, row_pointers, weights, vect_in, blocks_nodes[no_instances], vect_out, blocks_nodes[no_instances]);
+        // printf("\nafter");
+        // for(int i=0; i<blocks_nodes[no_instances]; i++) printf("%.2f\t",vect_out[i]);
+        // printf("\n");
 
         // #### update step ####
         update_step(vel_y, y, vect_out, blocks_nodes, no_instances);
@@ -258,6 +268,7 @@ void symulation_test(){
         row_pointers[i] = 0;
     }
     updateRowPointers(row_pointers, out, blocks_edges, blocks_nodes, no_instances, enabled);
+    
     int *row_pointers_t;
     row_pointers_t = (int*) malloc((blocks_nodes[no_instances] + 1) * sizeof(int));
     for(int i=0; i<(blocks_nodes[no_instances] + 1); i++){
@@ -265,13 +276,27 @@ void symulation_test(){
     }
     updateCol_idx_weights(row_pointers_t, weights, col_idx, in, w, out, blocks_edges, blocks_nodes, no_instances,enabled);
     free(row_pointers_t); // important free
+
+    // for(int i=0; i<(colsize); i++) printf("%d\t", col_idx[i]);
+
     int* rewards;
     rewards = (int*) malloc((no_instances) * sizeof(int));
     //set to -1
     for(int i=0; i<no_instances; i++) rewards[i] = -1;
+
+    
+    printf("\n");
     // symulate
     symulate(blocks_nodes, col_idx, row_pointers, weights, rewards, blocks_nodes[no_instances], no_instances, 100); // max iteration to 100
-    printf("Ended succesfuly!");
+    printf("Ended succesfuly!\n");
+    printf("rewards: ");
+    for(int i=0; i<no_instances; i++) printf("%d\t", rewards[i]);
+    printf("\n");
+    //set to -1
+    // for(int i=0; i<no_instances; i++) rewards[i] = -1;
+    // // symulate 2
+    // symulate(blocks_nodes, col_idx, row_pointers, weights, rewards, blocks_nodes[no_instances], no_instances, 100); // max iteration to 100
+    // printf("Ended succesfuly!\n");
 
 }
 
