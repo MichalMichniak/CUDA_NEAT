@@ -2,11 +2,17 @@
 #include <stdlib.h>
 #include <ctime>
 #include <cstdlib>
+#include <cmath>
 
 #define WIDTH 800
 #define HEIGHT 600
 #define GAP_R 140
 #define FLOPPY_RADIUS 10
+
+float sigmoid(float x){
+    return 1/(1+exp(-x));
+}
+
 // Mnożenie macierzy CSR przez wektor 
 void SparseMUL(int* column_idx, int* row_pointers, float* weights, float* input_vector, int vector_size, float* output_vector, int output_vector_size){
     for(int row=0; row<output_vector_size; row++){ // To do zrównoleglenia
@@ -16,7 +22,7 @@ void SparseMUL(int* column_idx, int* row_pointers, float* weights, float* input_
         for(int col_idx=row_pointers[row]; col_idx<row_pointers[row+1]; col_idx++){
             acc += input_vector[column_idx[col_idx]] * weights[col_idx];
         }
-        output_vector[row] = acc;
+        output_vector[row] = sigmoid(acc);
     }
 }
 
@@ -97,7 +103,7 @@ void update_step(float* vel_y, float* y, float* vect_out,int *blocks_nodes, int 
         float g = 0.1;
         float flop_v = 4;
         vel_y[i] += g;
-        if(vect_out[blocks_nodes[i]]){
+        if(vect_out[blocks_nodes[i]]>0.5){
             vel_y[i] = -flop_v;
         }
         y[i]+=vel_y[i];
