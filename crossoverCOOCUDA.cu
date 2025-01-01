@@ -453,20 +453,20 @@ void test_crosover(){
         fscanf(plik, "%d", second_pair+i);
     }
     // end of init
-    printf("\nold block nodes: ");
+    // printf("\nold block nodes: ");
 
-    for(int i=0; i<6; i++){
-        printf("%d\t", blocks_nodes[i]);
-    }
-    printf("\nold block edges: ");
-    for(int i=0; i<6; i++){
-        printf("%d\t", blocks_edges[i]);
-    }
-    printf("\ninnovation numbers: ");
-    for(int i=0; i<24; i++){
-        printf("%d\t", innov[i]);
-    }
-    printf("\n");
+    // for(int i=0; i<6; i++){
+    //     printf("%d\t", blocks_nodes[i]);
+    // }
+    // printf("\nold block edges: ");
+    // for(int i=0; i<6; i++){
+    //     printf("%d\t", blocks_edges[i]);
+    // }
+    // printf("\ninnovation numbers: ");
+    // for(int i=0; i<24; i++){
+    //     printf("%d\t", innov[i]);
+    // }
+    // printf("\n");
     // ###### inicializacja i alokacja ######
     int *d_in;
     int *d_out;
@@ -554,8 +554,8 @@ void test_crosover(){
     // end mutations
     dim3 dimGrid(ceil((float)((1+no_survivors+no_offsprings+no_mutations))/BLOCK_SIZE),1,1);
     dim3 dimBlock(BLOCK_SIZE,1,1);
-    cumulatedHistogram<<<dimGrid,dimBlock>>>(d_new_blocks_nodes, d_new_blocks_nodes, (1+no_survivors+no_offsprings+no_mutations));
-    cumulatedHistogram<<<dimGrid,dimBlock>>>(d_new_blocks_nodes, d_new_blocks_nodes, (1+no_survivors+no_offsprings+no_mutations));
+    cumulatedHistogram(d_new_blocks_nodes, d_new_blocks_nodes, (1+no_survivors+no_offsprings+no_mutations));
+    cumulatedHistogram(d_new_blocks_edges, d_new_blocks_edges, (1+no_survivors+no_offsprings+no_mutations));
 
     int *d_new_in;
     int *d_new_out;
@@ -648,7 +648,7 @@ void test_crosover(){
     float *new_w;
     bool *new_enabled;
     int *new_innov;
-    int new_no_instances; // survivors + offsprings + mutated
+
     int *new_translation; // 
     int *new_blocks_nodes;
     int *new_blocks_edges;
@@ -663,55 +663,52 @@ void test_crosover(){
     new_innov = (int*)malloc(no_edges*sizeof(int));
     new_translation = (int*)malloc(no_nodes*sizeof(int));
 
-    cudaMemcpy(new_in, d_in, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(out, d_out, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(w, d_w, (blocks_edges[no_instances]) * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(enabled, d_enabled, (blocks_edges[no_instances]) * sizeof(bool), cudaMemcpyDeviceToHost);
-    cudaMemcpy(innov, d_innov, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_in, d_in, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_out, d_out, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_w, d_w, no_edges * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_enabled, d_enabled, no_edges * sizeof(bool), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_innov, d_innov, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
 
-    cudaMemcpy(blocks_edges, d_blocks_edges, (no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(translation, d_translation, (blocks_nodes[no_instances]) * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(blocks_nodes, d_blocks_nodes, (no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
-    
-    cudaMemcpy(translation, d_translation, (blocks_nodes[no_instances]) * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(blocks_nodes, d_blocks_nodes, (no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_blocks_edges, d_blocks_edges, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_translation, d_translation, no_nodes * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(new_blocks_nodes, d_blocks_nodes, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
 
 
 
     printf("\nnew block nodes: ");
 
-    for(int i=0; i<7; i++){
+    for(int i=0; i<new_no_instances+1; i++){
         printf("%d\t", new_blocks_nodes[i]);
     }
     printf("\nnew block edges: ");
-    for(int i=0; i<7; i++){
+    for(int i=0; i<new_no_instances+1; i++){
         printf("%d\t", new_blocks_edges[i]);
     }
-    printf("\ntemp translation: ");
-    for(int i=0; i<blocks_nodes[no_instances]; i++){
-        printf("%d\t", translation_t[i]);
-    }
+    // printf("\ntemp translation: ");
+    // for(int i=0; i<no_nodes; i++){
+    //     printf("%d\t", new_translation_t[i]);
+    // }
     printf("\nnew translation: ");
-    for(int i=0; i<new_blocks_nodes[no_survivors+no_offsprings+no_mutations]; i++){
+    for(int i=0; i<no_nodes; i++){
         printf("%d\t", new_translation[i]);
     }
     printf("\nnew in: ");
-    for(int i=0; i<new_blocks_edges[no_survivors+no_offsprings+no_mutations]; i++){
+    for(int i=0; i<no_edges; i++){
         printf("%d\t", new_in[i]);
     }
 
     printf("\nnew out: ");
-    for(int i=0; i<new_blocks_edges[no_survivors+no_offsprings+no_mutations]; i++){
+    for(int i=0; i<no_edges; i++){
         printf("%d\t", new_out[i]);
     }
 
     printf("\nnew innov: ");
-    for(int i=0; i<new_blocks_edges[no_survivors+no_offsprings+no_mutations]; i++){
+    for(int i=0; i<no_edges; i++){
         printf("%d\t", new_innov[i]);
     }
 
     printf("\nnew enabled: ");
-    for(int i=0; i<new_blocks_edges[no_survivors+no_offsprings+no_mutations]; i++){
+    for(int i=0; i<no_edges; i++){
         printf("%d\t", (int)new_enabled[i]);
     }
     printf("\n");
