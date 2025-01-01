@@ -346,7 +346,7 @@ __global__ void crossover(
 }
 __global__ void initialize_rng(curandState* state, unsigned long seed) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    curand_init(seed, idx, 0, &state[idx]);
+    curand_init(clock64()+seed, idx, 0, &state[idx]);
 }
 
 __global__ void selection_step(curandState* state,int *rewards, int *mask, int no_instances){
@@ -355,7 +355,7 @@ __global__ void selection_step(curandState* state,int *rewards, int *mask, int n
         int best_idx = 0;
         int best_reward = -1;
         for(int k=0; k<K; k++){
-            int idx = (int)(curand_uniform(&state[i]) * no_instances);
+            int idx = (int)((1-curand_uniform(&state[i])) * no_instances);
             if(rewards[idx]>best_reward){
                 best_reward = rewards[idx];
                 best_idx = idx;
@@ -372,7 +372,7 @@ __global__ void selection_crossover_step(curandState* state,int *rewards, int *f
         int best_idx = 0;
         int best_reward = -1;
         for(int k=0; k<K; k++){
-            int idx = (int)(curand_uniform(&state[i]) * no_instances);
+            int idx = (int)((1-curand_uniform(&state[i])) * no_instances);
             if(rewards[idx]>best_reward){
                 best_reward = rewards[idx];
                 best_idx = idx;
@@ -382,7 +382,7 @@ __global__ void selection_crossover_step(curandState* state,int *rewards, int *f
         best_idx = 0;
         best_reward = -1;
         for(int k=0; k<K; k++){
-            int idx = (int)(curand_uniform(&state[i]) * no_instances);
+            int idx = (int)((1-curand_uniform(&state[i])) * no_instances);
             if(rewards[idx]>best_reward){
                 best_reward = rewards[idx];
                 best_idx = idx;
