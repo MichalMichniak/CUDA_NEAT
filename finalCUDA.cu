@@ -10,10 +10,13 @@
 #define GAP_R 140
 #define FLOPPY_RADIUS 10
 
+#define MAX_ITERATION_GOAL 100000
+
 #define POPULATION_COUNT 1000
 #define SURVIVORS_TOURNAMENTS 200
 #define K 100
 #define BLOCK_SIZE 128
+
 
 #define MUTATION_T1 12
 #define MUTATION_T2 35
@@ -268,6 +271,170 @@ bool STOP_cryterion(bool* d_collision, int length)
     return result;
 }
 // ###### Reduction END #######
+// ###### Reduction MAX BEGIN #######
+
+int reductionSequential_MAX(int *input, int width)
+{
+    int maximum = -1;
+    for (int i = 0; i < width; ++i)
+    {
+        maximum = max(maximum,input[i]);
+    }
+
+    return maximum;
+}
+
+__global__ void reductionKernelOp_MAX(int *input, int *output, int width)
+{
+    //@@ INSERT CODE HERE
+    __shared__ int in[BLOCK_SIZE];
+    if(threadIdx.x + (blockDim.x * blockIdx.x) < width){
+        in[threadIdx.x] = (input[threadIdx.x + (blockDim.x * blockIdx.x)]);
+    }else{
+        in[threadIdx.x] = -1;
+    }
+    __syncthreads();
+    int targetlevel = 0;
+    int index = BLOCK_SIZE;
+    while (index >>= 1) ++targetlevel;
+
+    int result = -1;
+    for(int it = 0; it < targetlevel; it++){
+        if(threadIdx.x<(BLOCK_SIZE/(2<<it))){
+            result = (int)max((float)in[threadIdx.x],(float)in[threadIdx.x+(BLOCK_SIZE/(2<<it))]);
+            // printf("it: %d\t(%d, %d)\t%d\t%d\n",it,threadIdx.x, threadIdx.x+(1<<it) ,in[threadIdx.x] ,in[threadIdx.x+(1<<it)]);
+        }
+        __syncthreads();
+        if((threadIdx.x<(BLOCK_SIZE/(2<<it)))){
+            in[threadIdx.x] = result;
+        }
+        //printf("%f\n",in[0]);
+        __syncthreads();
+    }
+    
+    if(threadIdx.x == 0){
+        output[blockIdx.x] = in[0]; 
+        // printf("%f",in[0]);
+        // printf("\n%d\n",targetlevel);
+    }
+    
+}
+
+int MAX_cryterion(int* d_rewards, int length)
+{
+    //@@ INSERT CODE HERE
+    int *d_output, *h_output;
+    cudaMalloc(&d_output, ceil((float)length/BLOCK_SIZE) * sizeof(int));
+    h_output = (int*)malloc(ceil((float)length/BLOCK_SIZE) * sizeof(int));
+
+    dim3 dimGrid(ceil((float)length/BLOCK_SIZE),1,1);
+    dim3 dimBlock(BLOCK_SIZE,1,1);
+    
+    reductionKernelOp_MAX<<<dimGrid,dimBlock>>>(d_rewards,d_output,length);
+    
+    cudaMemcpy(h_output, d_output,  ceil((float)length/BLOCK_SIZE)*sizeof(int), cudaMemcpyDeviceToHost);
+
+    int result = reductionSequential_MAX(h_output,ceil((float)length/BLOCK_SIZE));
+    cudaFree(d_output);
+    
+    free(h_output);
+    return result;
+}
+// ###### Reduction MAX END #######
+
+
+// ###### Reduction MAX IDX BEGIN #######
+
+int reductionSequential_MAX_IDX(int *input, int *input_idx, int width)
+{
+    int maximum = -1;
+    int idx = -1;
+    for (int i = 0; i < width; ++i)
+    {   
+        if(maximum<input[i]){
+            maximum = input[i];
+            idx = input_idx[i];
+        }
+    }
+    printf("Maximum: %d\n", maximum);
+    return idx;
+}
+
+__global__ void reductionKernelOp_MAX_IDX(int *input, int *output, int *output_idx, int width)
+{
+    //@@ INSERT CODE HERE
+    __shared__ int in[BLOCK_SIZE];
+    __shared__ int in_idx[BLOCK_SIZE];
+    if(threadIdx.x + (blockDim.x * blockIdx.x) < width){
+        in[threadIdx.x] = (input[threadIdx.x + (blockDim.x * blockIdx.x)]);
+        in_idx[threadIdx.x] = threadIdx.x + (blockDim.x * blockIdx.x);
+    }else{
+        in[threadIdx.x] = -1;
+        in_idx[threadIdx.x] = -1;
+    }
+    __syncthreads();
+    int targetlevel = 0;
+    int index = BLOCK_SIZE;
+    while (index >>= 1) ++targetlevel;
+
+    int result = -1;
+    int result_idx = -1;
+    for(int it = 0; it < targetlevel; it++){
+        if(threadIdx.x<(BLOCK_SIZE/(2<<it))){
+            if(in[threadIdx.x]>in[threadIdx.x+(BLOCK_SIZE/(2<<it))]){
+                result = in[threadIdx.x];
+                result_idx = in_idx[threadIdx.x];
+            }else{
+                result = in[threadIdx.x+(BLOCK_SIZE/(2<<it))];
+                result_idx = in_idx[threadIdx.x+(BLOCK_SIZE/(2<<it))];
+            }
+            
+            // printf("it: %d\t(%d, %d)\t%d\t%d\n",it,threadIdx.x, threadIdx.x+(1<<it) ,in[threadIdx.x] ,in[threadIdx.x+(1<<it)]);
+        }
+        __syncthreads();
+        if((threadIdx.x<(BLOCK_SIZE/(2<<it)))){
+            in[threadIdx.x] = result;
+            in_idx[threadIdx.x] = result_idx;
+        }
+        //printf("%f\n",in[0]);
+        __syncthreads();
+    }
+    
+    if(threadIdx.x == 0){
+        output[blockIdx.x] = in[0]; 
+        output_idx[blockIdx.x] = in_idx[0];
+        // printf("%f",in[0]);
+        // printf("\n%d\n",targetlevel);
+    }
+    
+}
+
+int MAX_cryterion_IDX(int* d_rewards, int length)
+{
+    //@@ INSERT CODE HERE
+    int *d_output, *h_output,*d_output_idx, *h_output_idx;
+    cudaMalloc(&d_output, ceil((float)length/BLOCK_SIZE) * sizeof(int));
+    cudaMalloc(&d_output_idx, ceil((float)length/BLOCK_SIZE) * sizeof(int));
+    h_output = (int*)malloc(ceil((float)length/BLOCK_SIZE) * sizeof(int));
+    h_output_idx = (int*)malloc(ceil((float)length/BLOCK_SIZE) * sizeof(int));
+
+    dim3 dimGrid(ceil((float)length/BLOCK_SIZE),1,1);
+    dim3 dimBlock(BLOCK_SIZE,1,1);
+    
+    reductionKernelOp_MAX_IDX<<<dimGrid,dimBlock>>>(d_rewards,d_output,d_output_idx,length);
+    
+    cudaMemcpy(h_output, d_output,  ceil((float)length/BLOCK_SIZE)*sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_output_idx, d_output_idx,  ceil((float)length/BLOCK_SIZE)*sizeof(int), cudaMemcpyDeviceToHost);
+
+    int result = reductionSequential_MAX_IDX(h_output,h_output_idx,ceil((float)length/BLOCK_SIZE));
+    cudaFree(d_output);
+    cudaFree(d_output_idx);
+    
+    free(h_output);
+    free(h_output_idx);
+    return result;
+}
+// ###### Reduction MAX IDX END #######
 
 // Mnożenie macierzy CSR przez wektor 
 __global__ void SparseMUL(int* column_idx, int* row_pointers, float* weights, float* input_vector, int vector_size, float* output_vector, int output_vector_size){
@@ -1399,7 +1566,7 @@ void main_loop(){
     for(int i = 0; i<blocks_edges[no_instances]; i++){
         fscanf(plik, "%f", w+i);
     }
-    
+    fclose(plik);
 
     // ###### inicializacja i alokacja na Device ######
     int *d_in;
@@ -1490,9 +1657,13 @@ void main_loop(){
         POPULATION_COUNT,
         no_nodes,
         no_edges,
-        10000
+        MAX_ITERATION_GOAL
         );
 
+        int best_reward;
+        best_reward = MAX_cryterion(d_rewards,POPULATION_COUNT);
+        printf("maximum reward: %d\n", best_reward);
+        if(best_reward == MAX_ITERATION_GOAL-1) break;
         get_new_population(
         &d_in,
         &d_out,
@@ -1562,22 +1733,68 @@ void main_loop(){
         // free(new_enabled);
         // free(new_innov);
         // free(new_translation);
-        int rew_first;
-        cudaMemcpy(&rew_first, d_rewards, sizeof(int), cudaMemcpyDeviceToHost);
-        printf("number of nodes: %d\tnumber of edges: %d\tfirst floppy score: %d\n", no_nodes, no_edges, rew_first);
+        printf("number of nodes: %d\tnumber of edges: %d\tmaximum reward: %d\n", no_nodes, no_edges, best_reward);
+    }
+    int copy_idx = MAX_cryterion_IDX(d_rewards, POPULATION_COUNT);
+    printf("idx: %d\n", copy_idx);
+    int first_node; 
+    int last_node;
+    int first_edge; 
+    int last_edge;
+
+    cudaMemcpy(&first_edge, d_blocks_edges+copy_idx, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&last_edge, d_blocks_edges+copy_idx+1, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&first_node, d_blocks_nodes+copy_idx, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&last_node, d_blocks_nodes+copy_idx+1, sizeof(int), cudaMemcpyDeviceToHost);
+
+    int edge_size = last_edge - first_edge;
+    int node_size = last_node - first_node;
+
+    int *save_in;
+    int *save_out;
+    float *save_w;
+    bool *save_enabled;
+
+    save_in = (int*)malloc(edge_size*sizeof(int));
+    save_out = (int*)malloc(edge_size*sizeof(int));
+    save_w = (float*)malloc(edge_size*sizeof(float));
+    save_enabled = (bool*)malloc(edge_size*sizeof(bool));
+
+
+    cudaMemcpy(save_in, d_in+first_edge, edge_size * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(save_out, d_out+first_edge, edge_size * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(save_w, d_w+first_edge, edge_size * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(save_enabled, d_enabled+first_edge, edge_size * sizeof(bool), cudaMemcpyDeviceToHost);
+
+    plik = fopen("best_net.txt", "w");
+    if (plik != NULL) {
+        fprintf(plik,"%d %d\n", node_size, edge_size);
+        for (int i = 0; i < edge_size; i++) {
+            fprintf(plik, "%d ", save_in[i]);
+        }
+        fprintf(plik,"\n");
+        for (int i = 0; i < edge_size; i++) {
+            fprintf(plik, "%d ", save_out[i]);
+        }
+        fprintf(plik,"\n");
+        for (int i = 0; i < edge_size; i++) {
+            fprintf(plik, "%f ", save_w[i]);
+        }
+        fprintf(plik,"\n");
+        for (int i = 0; i < edge_size; i++) {
+            fprintf(plik, "%d ", (int)save_enabled[i]);
+        }
+
+        fclose(plik);
     }
     
-
-    
-    // new_in = (int*)malloc(no_edges*sizeof(int));
-    // new_out = (int*)malloc(no_edges*sizeof(int));
-    // new_w = (float*)malloc(no_edges*sizeof(float));
-    // new_enabled = (bool*)malloc(no_edges*sizeof(bool));
-    // new_innov = (int*)malloc(no_edges*sizeof(int));
-    // new_translation = (int*)malloc(no_nodes*sizeof(int));
     
 
 
+    free(save_in);
+    free(save_out);
+    free(save_w);
+    free(save_enabled);
 
     // printf("\nnew block nodes: ");
 
@@ -1619,7 +1836,24 @@ void main_loop(){
 
     // tutaj free TODO:
     cudaFree(d_rewards);
+    cudaFree(d_in);
+    cudaFree(d_out);
+    cudaFree(d_w);
+    cudaFree(d_enabled);
+    cudaFree(d_innov);
+    cudaFree(d_blocks_edges);
+    cudaFree(d_blocks_nodes);
+    cudaFree(d_translation);
+    cudaFree(d_rewards_init);
 
+    free(blocks_nodes);
+    free(blocks_edges);
+    free(translation);
+    free(innov);
+    free(enabled);
+    free(in);
+    free(out);
+    free(w);
 }
 
 
