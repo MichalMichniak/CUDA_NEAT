@@ -2,13 +2,13 @@
 #include <stdlib.h>
 #include <curand_kernel.h>
 
-#define POPULATION_COUNT 2000
-#define SURVIVORS_TOURNAMENTS 400
+#define POPULATION_COUNT 1000
+#define SURVIVORS_TOURNAMENTS 200
 #define K 3
 #define BLOCK_SIZE 128
 
-#define MUTATION_T1 25
-#define MUTATION_T2 75
+#define MUTATION_T1 12
+#define MUTATION_T2 35
 int next_node_innov = 8;
 int next_edge_innov = 26;
 // ###### CUMULATED HISTOGRAM BEGIN #######
@@ -356,7 +356,6 @@ __global__ void crossover(
     }
     
 }
-
 __global__ void initialize_rng(curandState* state, unsigned long seed) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
     curand_init(clock64()+seed, idx, 0, &state[idx]);
@@ -420,13 +419,13 @@ __global__ void countMutations(curandState* state, int* mutation_parent, int* re
         }
         if(i<MUTATION_T1){
             // printf("%d,%d\n", offset,i+offset);
-            new_blocks_edges[i+offset] = blocks_edges[best_idx+1] - blocks_edges[best_idx] + 2;
-            new_blocks_nodes[i+offset] = blocks_nodes[best_idx+1] - blocks_nodes[best_idx] + 1;
+            new_blocks_edges[i+offset+1] = blocks_edges[best_idx+1] - blocks_edges[best_idx] + 2;
+            new_blocks_nodes[i+offset+1] = blocks_nodes[best_idx+1] - blocks_nodes[best_idx] + 1;
             mutation_parent[i] = best_idx;
         }else{
             // printf("%d,%d\n", offset,i+offset);
-            new_blocks_edges[i+offset] = blocks_edges[best_idx+1] - blocks_edges[best_idx] + 1;
-            new_blocks_nodes[i+offset] = blocks_nodes[best_idx+1] - blocks_nodes[best_idx];
+            new_blocks_edges[i+offset+1] = blocks_edges[best_idx+1] - blocks_edges[best_idx] + 1;
+            new_blocks_nodes[i+offset+1] = blocks_nodes[best_idx+1] - blocks_nodes[best_idx];
             mutation_parent[i] = best_idx;
         }
 
@@ -466,6 +465,7 @@ __global__ void MutateT1T2(
 
             for(int j=0; j<new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 2; j++){
                 new_in[j+new_blocks_edges[offset+i]] = in[j + blocks_edges[mutation_parent[i]]];
+                if(in[j + blocks_edges[mutation_parent[i]]]<0) printf("MUTACJA\t");
                 new_out[j+new_blocks_edges[offset+i]] = out[j + blocks_edges[mutation_parent[i]]];
                 if(split_idx != j){
                     new_enabled[j+new_blocks_edges[offset+i]] = enabled[j + blocks_edges[mutation_parent[i]]];
@@ -481,7 +481,7 @@ __global__ void MutateT1T2(
             new_enabled[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 2 +new_blocks_edges[offset+i]] = true;
             new_innov[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 2 +new_blocks_edges[offset+i]] = offset_edges_innov + 2*i;
             new_w[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 2 +new_blocks_edges[offset+i]] = w[split_idx+blocks_edges[mutation_parent[i]]];
-
+            if(in[split_idx+blocks_edges[mutation_parent[i]]]<0) printf("MUTACJA\t");
             new_in[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 1 +new_blocks_edges[offset+i]] = new_blocks_nodes[offset+i+1] - new_blocks_nodes[offset+i] - 1;
             new_out[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 1 +new_blocks_edges[offset+i]] = out[split_idx+blocks_edges[mutation_parent[i]]];
             new_enabled[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 1 +new_blocks_edges[offset+i]] = true;
@@ -514,7 +514,7 @@ __global__ void MutateT1T2(
             new_enabled[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 1 +new_blocks_edges[offset+i]] = true;
             new_innov[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 1 +new_blocks_edges[offset+i]] = offset_edges_innov + 2*MUTATION_T1 + (i - MUTATION_T1);
             new_w[new_blocks_edges[offset+i+1] - new_blocks_edges[offset+i] - 1 +new_blocks_edges[offset+i]] = (float)((1.0-curand_uniform(&state[i])) - 0.5);
-
+            if(first_idx<0) printf("MUTACJA\t");
             for(int j=0; j<new_blocks_nodes[offset+i+1] - new_blocks_nodes[offset+i]; j++){
                 new_translation[j+new_blocks_nodes[offset+i]] = translation[j + blocks_nodes[mutation_parent[i]]];
             }
@@ -523,134 +523,21 @@ __global__ void MutateT1T2(
     }
 }
 
-
-void test_crosover(){
-    FILE *plik = fopen("crosoverCOO_test.txt", "r");
-    if (plik == NULL) {
-        return;
-    }
-    /*
-    ########## wektory Populacji wejściowej ##########
-    int no_instances - ilość instancji wejściowych
-    int *blocks_nodes - hstogram skumulowany ilości wierzchołków (node) instancji (zaczynający się od 0) [0, end_1 + 1, end_1 + end_2 + 1, ...] (długość no_instances+1)
-    int *translation - mapowanie odcinków liczb naturalnych [0,n] do rzeczywistych numerów wierzchołków   (zał że w instancjach posortowane rosnąco) (długość blocks_nodes[no_instances])
-    int *blocks_edges - hstogram skumulowany ilości krawędzi (edges) instancji (długość no_instances+1)
-    int *in - wejścia synaps (krawędzi/edges) instancji zmapowane do odcinka [0,n] (długość blocks_edge[no_instances])
-    int *out - wejścia synaps (krawędzi/edges) instancji zmapowane do odcinka [0,n] (długość blocks_edge[no_instances])
-    float *w - wagi synaps (krawędzi/edges) instancji
-    bool *enabled - czy dane krawędzie są enabled (true jeżeli biorą udział w ewaluacji, false jeżeli nie biorą udziału w ewaluacji)
-    int *innov - innovation number unikatowy numer rozróżniający krawędzie pomiędzy genami
-    
-    
-    ########## wektory wejściowe z algorytmu genetycznego ##########
-    int *mask - bitowa maska 0 znaczy że instancja nie przechodzi do następnej populacji 1 że przechodzi // mask which survives
-    int no_survivors - ilość instancji która przetrwa (ilość jedynek w int *mask)
-    int no_mutations - ilość instancji z mutacji
-    int no_offsprings - ilość instancji z krzyżowania
-    int *first_pair - numer pierwszego rodzica każdy index odpowiada jednemu potomkowi(długość no_offsprings)
-    int *second_pair - numer drugiego rodzica każdy index odpowiada jednemu potomkowi(długość no_offsprings)
-    
-    ########## wektory Populacji wyjściowej (po definicje patrz "wektory Populacji wejściowej") ########## (To mamy zwrócić)
-    int *new_blocks_nodes - długość no_survivors + no_offsprings + no_mutations
-    int *new_blocks_edges - długość no_survivors + no_offsprings + no_mutations
-    int *new_in
-    int *new_out 
-    float *new_w 
-    bool *new_enabled 
-    int *new_innov 
-    int new_no_instances - długość survivors + offsprings + mutated
-    int *new_translation 
-
-    ######### Wektory pomocnicze ##########
-    int *istance_numbers_seq - funkcja LUT do mapowania [0,długość survivors) w numery instancji które przechodzą do następnej populacji
-    int *translation_t - tymczasowa funkcja mapująca stare indexy w nowe używana w krzyżowaniu (długość translation)
-    */
-
-    int *in;
-    int *out;
-    float *w;
-    bool *enabled;
-    int *innov; 
-
-    int no_instances;
-    int *blocks_edges;
-    int *translation; // zał że w instancjach posortowane rosnąco
-    int *blocks_nodes;
-    int *mask; // mask which survives
-    int no_survivors; // number of 1 in mask
-    int no_mutations = 0; // TODO: mutacia
-
-    int no_offsprings; // ze starej populacji
-    int *first_pair; // first parent: size no_offsprings
-    int *second_pair; // second parent: size no_offsprings
-    // init
-    fscanf(plik, "%d", &no_instances);
-    blocks_nodes = (int*) malloc((no_instances+1) * sizeof(int));
-    for(int i = 0; i<no_instances+1; i++){
-        fscanf(plik, "%d", blocks_nodes+i);
-    }
-    blocks_edges = (int*) malloc((no_instances+1) * sizeof(int));
-    for(int i = 0; i<no_instances+1; i++){
-        fscanf(plik, "%d", blocks_edges+i);
-    }
-    translation = (int*) malloc((blocks_nodes[no_instances]) * sizeof(int));
-    for(int i = 0; i<blocks_nodes[no_instances]; i++){
-        fscanf(plik, "%d", translation+i);
-    }
-    innov = (int*) malloc((blocks_edges[no_instances]) * sizeof(int));
-    for(int i = 0; i<blocks_edges[no_instances]; i++){
-        fscanf(plik, "%d", innov+i);
-    }
-    enabled = (bool*) malloc((blocks_edges[no_instances]) * sizeof(int));
-    for(int i = 0; i<blocks_edges[no_instances]; i++){
-        int temp;
-        fscanf(plik, "%d", &temp);
-        *(enabled+i) = (bool)temp;
-    }
-
-    in = (int*) malloc((blocks_edges[no_instances]) * sizeof(int));
-    for(int i = 0; i<blocks_edges[no_instances]; i++){
-        fscanf(plik, "%d", in+i);
-    }
-    out = (int*) malloc((blocks_edges[no_instances]) * sizeof(int));
-    for(int i = 0; i<blocks_edges[no_instances]; i++){
-        fscanf(plik, "%d", out+i);
-    }
-    w = (float*) malloc((blocks_edges[no_instances]) * sizeof(float));
-    for(int i = 0; i<blocks_edges[no_instances]; i++){
-        fscanf(plik, "%f", w+i);
-    }
-    fscanf(plik, "%d", &no_survivors);
-    mask = (int*) malloc(no_instances * sizeof(int));
-    for(int i = 0; i<no_instances; i++){
-        fscanf(plik, "%d", mask+i);
-    }
-    fscanf(plik, "%d", &no_offsprings);
-    first_pair = (int*) malloc(no_offsprings * sizeof(int));
-    for(int i = 0; i<no_offsprings; i++){
-        fscanf(plik, "%d", first_pair+i);
-    }
-    second_pair = (int*) malloc(no_offsprings * sizeof(int));
-    for(int i = 0; i<no_offsprings; i++){
-        fscanf(plik, "%d", second_pair+i);
-    }
-    int rewards[5] = {51,23,12,33,41};// for tests
-    // end of init
-    // printf("\nold block nodes: ");
-
-    // for(int i=0; i<6; i++){
-    //     printf("%d\t", blocks_nodes[i]);
-    // }
-    // printf("\nold block edges: ");
-    // for(int i=0; i<6; i++){
-    //     printf("%d\t", blocks_edges[i]);
-    // }
-    // printf("\ninnovation numbers: ");
-    // for(int i=0; i<24; i++){
-    //     printf("%d\t", innov[i]);
-    // }
-    // printf("\n");
-    // ###### inicializacja i alokacja ######
+void get_new_population(
+    int **d_in_,
+    int **d_out_,
+    float **d_w_,
+    bool **d_enabled_,
+    int **d_innov_,
+    int **d_blocks_edges_,
+    int **d_translation_,
+    int **d_blocks_nodes_,
+    int *d_rewards,
+    int no_instances,
+    int *no_nodes_,
+    int *no_edges_
+    ){
+    // przepisanie
     int *d_in;
     int *d_out;
     float *d_w;
@@ -661,35 +548,22 @@ void test_crosover(){
     int *d_translation;
     int *d_blocks_nodes;
 
-    int *d_rewards;
-    // alocation
-    cudaMalloc(&d_in, (blocks_edges[no_instances]) * sizeof(int));
-    cudaMalloc(&d_out, (blocks_edges[no_instances]) * sizeof(int));
-    cudaMalloc(&d_w, (blocks_edges[no_instances]) * sizeof(float));
-    cudaMalloc(&d_enabled, (blocks_edges[no_instances]) * sizeof(bool));
-    cudaMalloc(&d_innov, (blocks_edges[no_instances]) * sizeof(int));
+    d_in = *d_in_;
+    d_out = *d_out_;
+    d_w = *d_w_;
+    d_enabled = *d_enabled_;
+    d_innov = *d_innov_;
 
-    cudaMalloc(&d_blocks_edges, (no_instances+1) * sizeof(int));
-    cudaMalloc(&d_translation, (blocks_nodes[no_instances]) * sizeof(int));
-    cudaMalloc(&d_blocks_nodes, (no_instances+1) * sizeof(int));
+    d_blocks_edges = *d_blocks_edges_;
+    d_translation = *d_translation_;
+    d_blocks_nodes = *d_blocks_nodes_;
+    //
 
-    cudaMalloc(&d_rewards, (no_instances) * sizeof(int));
 
-    // data copy
-    cudaMemcpy(d_in, in, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_out, out, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_w, w, (blocks_edges[no_instances]) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_enabled, enabled, (blocks_edges[no_instances]) * sizeof(bool), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_innov, innov, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
+    int no_survivors; // number of 1 in mask
+    int no_mutations; // TODO: mutacia
 
-    cudaMemcpy(d_blocks_edges, blocks_edges, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_translation, translation, (blocks_nodes[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_blocks_nodes, blocks_nodes, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
-
-    cudaMemcpy(d_rewards, rewards, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
-    
-    //###### inicializacja i alokacja END ######
-    // ##### to do kopiowania #####
+    int no_offsprings; // ze starej populacji
 
     int *d_mask;
     int *d_first_pair;
@@ -705,6 +579,7 @@ void test_crosover(){
     selection_step<<<NGrid, BLOCK_SIZE>>>(d_state, d_rewards, d_mask, no_instances);
     cudaFree(d_state);
     
+    
 
     int *h_mask;
     h_mask = (int*) malloc(no_instances * sizeof(int));
@@ -716,7 +591,7 @@ void test_crosover(){
         }
     }
     no_survivors = idx;
-
+    
     int *istance_numbers_seq; // tablica numeru instancji mapowanej ze starej do nowej tablicy szie: no_survivors
     istance_numbers_seq = (int*)malloc(no_survivors*sizeof(int));
     idx = 0;
@@ -727,7 +602,6 @@ void test_crosover(){
         }
     }
 
-    
     no_offsprings = POPULATION_COUNT-no_survivors - MUTATION_T1 - MUTATION_T2;
     no_mutations = MUTATION_T1 + MUTATION_T2;
 
@@ -848,7 +722,7 @@ void test_crosover(){
     d_blocks_edges,
     d_new_blocks_nodes,
     d_new_blocks_edges,
-    no_offsprings+no_survivors-1, // bardzo ważny offset
+    no_offsprings+no_survivors, // bardzo ważny offset
     d_in,
     d_out,
     d_w,
@@ -879,16 +753,17 @@ void test_crosover(){
     cudaFree(d_mask);
     cudaFree(d_first_pair);
     cudaFree(d_second_pair);
-    d_in=d_new_in;
-    d_out=d_new_out;
-    d_w=d_new_w;
-    d_enabled=d_new_enabled;
-    d_innov=d_new_innov;
+    *d_in_=d_new_in;
+    *d_out_=d_new_out;
+    *d_w_=d_new_w;
+    *d_enabled_=d_new_enabled;
+    *d_innov_=d_new_innov;
 
-    d_blocks_edges=d_new_blocks_edges;
-    d_translation=d_new_translation;
-    d_blocks_nodes=d_new_blocks_nodes;
-
+    *d_blocks_edges_=d_new_blocks_edges;
+    *d_translation_=d_new_translation;
+    *d_blocks_nodes_=d_new_blocks_nodes;
+    *no_edges_ = no_edges;
+    *no_nodes_ = no_nodes;
     // czyszczenie
     cudaFree(d_state);
     cudaFree(d_translation_t1);
@@ -898,6 +773,171 @@ void test_crosover(){
     free(h_mask);
 
     // end czyszczenie
+}
+
+void test_crosover(){
+    FILE *plik = fopen("crosoverCOO_test.txt", "r");
+    if (plik == NULL) {
+        return;
+    }
+    /*
+    ########## wektory Populacji wejściowej ##########
+    int no_instances - ilość instancji wejściowych
+    int *blocks_nodes - hstogram skumulowany ilości wierzchołków (node) instancji (zaczynający się od 0) [0, end_1 + 1, end_1 + end_2 + 1, ...] (długość no_instances+1)
+    int *translation - mapowanie odcinków liczb naturalnych [0,n] do rzeczywistych numerów wierzchołków   (zał że w instancjach posortowane rosnąco) (długość blocks_nodes[no_instances])
+    int *blocks_edges - hstogram skumulowany ilości krawędzi (edges) instancji (długość no_instances+1)
+    int *in - wejścia synaps (krawędzi/edges) instancji zmapowane do odcinka [0,n] (długość blocks_edge[no_instances])
+    int *out - wejścia synaps (krawędzi/edges) instancji zmapowane do odcinka [0,n] (długość blocks_edge[no_instances])
+    float *w - wagi synaps (krawędzi/edges) instancji
+    bool *enabled - czy dane krawędzie są enabled (true jeżeli biorą udział w ewaluacji, false jeżeli nie biorą udziału w ewaluacji)
+    int *innov - innovation number unikatowy numer rozróżniający krawędzie pomiędzy genami
+    
+    
+    ########## wektory wejściowe z algorytmu genetycznego ##########
+    int *mask - bitowa maska 0 znaczy że instancja nie przechodzi do następnej populacji 1 że przechodzi // mask which survives
+    int no_survivors - ilość instancji która przetrwa (ilość jedynek w int *mask)
+    int no_mutations - ilość instancji z mutacji
+    int no_offsprings - ilość instancji z krzyżowania
+    int *first_pair - numer pierwszego rodzica każdy index odpowiada jednemu potomkowi(długość no_offsprings)
+    int *second_pair - numer drugiego rodzica każdy index odpowiada jednemu potomkowi(długość no_offsprings)
+    
+    ########## wektory Populacji wyjściowej (po definicje patrz "wektory Populacji wejściowej") ########## (To mamy zwrócić)
+    int *new_blocks_nodes - długość no_survivors + no_offsprings + no_mutations
+    int *new_blocks_edges - długość no_survivors + no_offsprings + no_mutations
+    int *new_in
+    int *new_out 
+    float *new_w 
+    bool *new_enabled 
+    int *new_innov 
+    int new_no_instances - długość survivors + offsprings + mutated
+    int *new_translation 
+
+    ######### Wektory pomocnicze ##########
+    int *istance_numbers_seq - funkcja LUT do mapowania [0,długość survivors) w numery instancji które przechodzą do następnej populacji
+    int *translation_t - tymczasowa funkcja mapująca stare indexy w nowe używana w krzyżowaniu (długość translation)
+    */
+
+    int *in;
+    int *out;
+    float *w;
+    bool *enabled;
+    int *innov; 
+
+    int no_instances;
+    int *blocks_edges;
+    int *translation; // zał że w instancjach posortowane rosnąco
+    int *blocks_nodes;
+    
+    // init
+    fscanf(plik, "%d", &no_instances);
+    blocks_nodes = (int*) malloc((no_instances+1) * sizeof(int));
+    for(int i = 0; i<no_instances+1; i++){
+        fscanf(plik, "%d", blocks_nodes+i);
+    }
+    blocks_edges = (int*) malloc((no_instances+1) * sizeof(int));
+    for(int i = 0; i<no_instances+1; i++){
+        fscanf(plik, "%d", blocks_edges+i);
+    }
+    translation = (int*) malloc((blocks_nodes[no_instances]) * sizeof(int));
+    for(int i = 0; i<blocks_nodes[no_instances]; i++){
+        fscanf(plik, "%d", translation+i);
+    }
+    innov = (int*) malloc((blocks_edges[no_instances]) * sizeof(int));
+    for(int i = 0; i<blocks_edges[no_instances]; i++){
+        fscanf(plik, "%d", innov+i);
+    }
+    enabled = (bool*) malloc((blocks_edges[no_instances]) * sizeof(int));
+    for(int i = 0; i<blocks_edges[no_instances]; i++){
+        int temp;
+        fscanf(plik, "%d", &temp);
+        *(enabled+i) = (bool)temp;
+    }
+
+    in = (int*) malloc((blocks_edges[no_instances]) * sizeof(int));
+    for(int i = 0; i<blocks_edges[no_instances]; i++){
+        fscanf(plik, "%d", in+i);
+    }
+    out = (int*) malloc((blocks_edges[no_instances]) * sizeof(int));
+    for(int i = 0; i<blocks_edges[no_instances]; i++){
+        fscanf(plik, "%d", out+i);
+    }
+    w = (float*) malloc((blocks_edges[no_instances]) * sizeof(float));
+    for(int i = 0; i<blocks_edges[no_instances]; i++){
+        fscanf(plik, "%f", w+i);
+    }
+    int rewards[5] = {51,23,12,33,41};// for tests
+    // end of init
+    // printf("\nold block nodes: ");
+
+    // for(int i=0; i<6; i++){
+    //     printf("%d\t", blocks_nodes[i]);
+    // }
+    // printf("\nold block edges: ");
+    // for(int i=0; i<6; i++){
+    //     printf("%d\t", blocks_edges[i]);
+    // }
+    // printf("\ninnovation numbers: ");
+    // for(int i=0; i<24; i++){
+    //     printf("%d\t", innov[i]);
+    // }
+    // printf("\n");
+    // ###### inicializacja i alokacja ######
+    int *d_in;
+    int *d_out;
+    float *d_w;
+    bool *d_enabled;
+    int *d_innov;
+    
+    int *d_blocks_edges;
+    int *d_translation;
+    int *d_blocks_nodes;
+
+    int *d_rewards;
+    // alocation
+    cudaMalloc(&d_in, (blocks_edges[no_instances]) * sizeof(int));
+    cudaMalloc(&d_out, (blocks_edges[no_instances]) * sizeof(int));
+    cudaMalloc(&d_w, (blocks_edges[no_instances]) * sizeof(float));
+    cudaMalloc(&d_enabled, (blocks_edges[no_instances]) * sizeof(bool));
+    cudaMalloc(&d_innov, (blocks_edges[no_instances]) * sizeof(int));
+
+    cudaMalloc(&d_blocks_edges, (no_instances+1) * sizeof(int));
+    cudaMalloc(&d_translation, (blocks_nodes[no_instances]) * sizeof(int));
+    cudaMalloc(&d_blocks_nodes, (no_instances+1) * sizeof(int));
+
+    cudaMalloc(&d_rewards, (no_instances) * sizeof(int));
+
+    // data copy
+    cudaMemcpy(d_in, in, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_out, out, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_w, w, (blocks_edges[no_instances]) * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_enabled, enabled, (blocks_edges[no_instances]) * sizeof(bool), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_innov, innov, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
+
+    cudaMemcpy(d_blocks_edges, blocks_edges, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_translation, translation, (blocks_nodes[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_blocks_nodes, blocks_nodes, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
+
+    cudaMemcpy(d_rewards, rewards, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
+    
+    //###### inicializacja i alokacja END ######
+    // ##### to do kopiowania #####
+    int no_edges;
+    int no_nodes;
+    get_new_population(
+    &d_in,
+    &d_out,
+    &d_w,
+    &d_enabled,
+    &d_innov,
+    &d_blocks_edges,
+    &d_translation,
+    &d_blocks_nodes,
+    d_rewards,
+    no_instances,
+    &no_nodes,
+    &no_edges
+    );
+
 
     // sprawdzenie:
     int *new_in;
@@ -908,67 +948,139 @@ void test_crosover(){
 
     int *new_translation; // 
     int *new_blocks_nodes;
-    
-    new_no_instances = no_survivors + no_offsprings + no_mutations;
+    int new_no_instances = POPULATION_COUNT;
 
-    new_blocks_nodes = (int*)malloc((1+no_survivors+no_offsprings+no_mutations)*sizeof(int)); // 0 | 1 do no_survivors | no_survivors + 1 do no_survivors + no_offsprings | no_survivors + no_offsprings + 1 do no_survivors + no_offsprings + no_mutation 
+    new_blocks_nodes = (int*)malloc((1+POPULATION_COUNT)*sizeof(int)); // 0 | 1 do no_survivors | no_survivors + 1 do no_survivors + no_offsprings | no_survivors + no_offsprings + 1 do no_survivors + no_offsprings + no_mutation 
      
+    
+
+    for(int i=0; i<10; i++){
+        int *d_rewards2;
+        cudaMalloc(&d_rewards2, (POPULATION_COUNT) * sizeof(int));
+    
+        cudaMemset(d_rewards2, 5, (POPULATION_COUNT) * sizeof(int));
+        cudaMemset(d_rewards2, 0, sizeof(int));
+        get_new_population(
+        &d_in,
+        &d_out,
+        &d_w,
+        &d_enabled,
+        &d_innov,
+        &d_blocks_edges,
+        &d_translation,
+        &d_blocks_nodes,
+        d_rewards2,
+        POPULATION_COUNT,
+        &no_nodes,
+        &no_edges
+        );
+
+        cudaFree(d_rewards2);
+        new_in = (int*)malloc(no_edges*sizeof(int));
+        new_out = (int*)malloc(no_edges*sizeof(int));
+        new_w = (float*)malloc(no_edges*sizeof(float));
+        new_enabled = (bool*)malloc(no_edges*sizeof(bool));
+        new_innov = (int*)malloc(no_edges*sizeof(int));
+        new_translation = (int*)malloc(no_nodes*sizeof(int));
+
+        cudaMemcpy(new_in, d_in, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_out, d_out, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_w, d_w, no_edges * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_enabled, d_enabled, no_edges * sizeof(bool), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_innov, d_innov, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+
+        
+        cudaMemcpy(new_translation, d_translation, no_nodes * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_blocks_nodes, d_blocks_nodes, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
+        printf("\nnew block nodes: ");
+
+        for(int i=0; i<new_no_instances+1; i++){
+            printf("%d\t", new_blocks_nodes[i]);
+        }
+        int *new_blocks_edges;
+        new_blocks_edges = (int*)malloc((1+POPULATION_COUNT)*sizeof(int));
+        cudaMemcpy(new_blocks_edges, d_blocks_edges, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
+        printf("\nnew block edges: ");
+        for(int i=0; i<new_no_instances+1; i++){
+            printf("%d\t", new_blocks_edges[i]);
+        }
+        
+        printf("\nnew translation: ");
+        for(int i=0; i<no_nodes; i++){
+            printf("%d\t", new_translation[i]);
+        }
+        printf("\nnew in: ");
+        for(int i=0; i<no_edges; i++){
+            printf("%d\t", new_in[i]);
+        }
+
+        printf("\nnew out: ");
+        for(int i=0; i<no_edges; i++){
+            printf("%d\t", new_out[i]);
+        }
+
+        printf("\nnew innov: ");
+        for(int i=0; i<no_edges; i++){
+            printf("%d\t", new_innov[i]);
+        }
+        // printf("%d\n",i);
+        free(new_in);
+        free(new_out);
+        free(new_w);
+        free(new_enabled);
+        free(new_innov);
+        free(new_translation);
+    }
+    
+
+    
     new_in = (int*)malloc(no_edges*sizeof(int));
     new_out = (int*)malloc(no_edges*sizeof(int));
     new_w = (float*)malloc(no_edges*sizeof(float));
     new_enabled = (bool*)malloc(no_edges*sizeof(bool));
     new_innov = (int*)malloc(no_edges*sizeof(int));
     new_translation = (int*)malloc(no_nodes*sizeof(int));
-
-    cudaMemcpy(new_in, d_in, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(new_out, d_out, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(new_w, d_w, no_edges * sizeof(float), cudaMemcpyDeviceToHost);
-    cudaMemcpy(new_enabled, d_enabled, no_edges * sizeof(bool), cudaMemcpyDeviceToHost);
-    cudaMemcpy(new_innov, d_innov, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
-
     
-    cudaMemcpy(new_translation, d_translation, no_nodes * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(new_blocks_nodes, d_blocks_nodes, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
 
 
 
-    printf("\nnew block nodes: ");
+    // printf("\nnew block nodes: ");
 
-    for(int i=0; i<new_no_instances+1; i++){
-        printf("%d\t", new_blocks_nodes[i]);
-    }
-    int *new_blocks_edges;
-    new_blocks_edges = (int*)malloc((1+no_survivors+no_offsprings+no_mutations)*sizeof(int));
-    cudaMemcpy(new_blocks_edges, d_blocks_edges, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
-    printf("\nnew block edges: ");
-    for(int i=0; i<new_no_instances+1; i++){
-        printf("%d\t", new_blocks_edges[i]);
-    }
+    // for(int i=0; i<new_no_instances+1; i++){
+    //     printf("%d\t", new_blocks_nodes[i]);
+    // }
+    // int *new_blocks_edges;
+    // new_blocks_edges = (int*)malloc((1+POPULATION_COUNT)*sizeof(int));
+    // cudaMemcpy(new_blocks_edges, d_blocks_edges, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
+    // printf("\nnew block edges: ");
+    // for(int i=0; i<new_no_instances+1; i++){
+    //     printf("%d\t", new_blocks_edges[i]);
+    // }
     
-    printf("\nnew translation: ");
-    for(int i=0; i<no_nodes; i++){
-        printf("%d\t", new_translation[i]);
-    }
-    printf("\nnew in: ");
-    for(int i=0; i<no_edges; i++){
-        printf("%d\t", new_in[i]);
-    }
+    // printf("\nnew translation: ");
+    // for(int i=0; i<no_nodes; i++){
+    //     printf("%d\t", new_translation[i]);
+    // }
+    // printf("\nnew in: ");
+    // for(int i=0; i<no_edges; i++){
+    //     printf("%d\t", new_in[i]);
+    // }
 
-    printf("\nnew out: ");
-    for(int i=0; i<no_edges; i++){
-        printf("%d\t", new_out[i]);
-    }
+    // printf("\nnew out: ");
+    // for(int i=0; i<no_edges; i++){
+    //     printf("%d\t", new_out[i]);
+    // }
 
-    printf("\nnew innov: ");
-    for(int i=0; i<no_edges; i++){
-        printf("%d\t", new_innov[i]);
-    }
+    // printf("\nnew innov: ");
+    // for(int i=0; i<no_edges; i++){
+    //     printf("%d\t", new_innov[i]);
+    // }
 
-    printf("\nnew enabled: ");
-    for(int i=0; i<no_edges; i++){
-        printf("%d\t", (int)new_enabled[i]);
-    }
-    printf("\n");
+    // printf("\nnew enabled: ");
+    // for(int i=0; i<no_edges; i++){
+    //     printf("%d\t", (int)new_enabled[i]);
+    // }
+    // printf("\n");
     // tutaj free TODO:
 
 }

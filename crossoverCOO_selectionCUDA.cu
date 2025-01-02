@@ -237,7 +237,8 @@ __global__ void crossover(
     int *new_innov,
     int *new_translation,
     int *translation,
-    int *translation_t
+    int *translation_t1,
+    int *translation_t2
     ){
     int i = threadIdx.x + (blockDim.x * blockIdx.x);
     while(i<no_offsprings){
@@ -251,32 +252,32 @@ __global__ void crossover(
             if(translation[idx_first] == translation[idx_second]){
                 new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_first];
 
-                translation_t[idx_first] = idx;
-                translation_t[idx_second] = idx;
+                translation_t1[idx_first - blocks_nodes[first] + new_blocks_nodes[i+offset]] = idx;
+                translation_t2[idx_second - blocks_nodes[second] + new_blocks_nodes[i+offset]] = idx;
                 idx++;
                 idx_first++;
                 idx_second++;
             }else if(translation[idx_first] < translation[idx_second]){
                 new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_first];
-                translation_t[idx_first] = idx;
+                translation_t1[idx_first - blocks_nodes[first] + new_blocks_nodes[i+offset]] = idx;
                 idx++;
                 idx_first++;
             }else{
                 new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_second];
-                translation_t[idx_second] = idx;
+                translation_t2[idx_second - blocks_nodes[second] + new_blocks_nodes[i+offset]] = idx;
                 idx++;
                 idx_second++;
             }
         }
         while(idx_first != blocks_nodes[first+1]){
             new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_first];
-            translation_t[idx_first] = idx;
+            translation_t1[idx_first - blocks_nodes[first] + new_blocks_nodes[i+offset]] = idx;
             idx++;
             idx_first++;
         }
         while(idx_second != blocks_nodes[second+1]){
             new_translation[idx + new_blocks_nodes[i+offset]] = translation[idx_second];
-            translation_t[idx_second] = idx;
+            translation_t2[idx_second - blocks_nodes[second] + new_blocks_nodes[i+offset]] = idx;
             idx++;
             idx_second++;
         }
@@ -293,8 +294,9 @@ __global__ void crossover(
                 new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_first] && enabled[idx_second];
                 new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_first];
                 // if(i==0) printf("%d, %d\t", in[idx_first]+blocks_nodes[first_pair[i]],translation_t[in[idx_first]]+blocks_nodes[first_pair[i]]);
-                new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_first]+blocks_nodes[first_pair[i]]];
-                new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_first]+blocks_nodes[first_pair[i]]];
+                new_in[idx+new_blocks_edges[i+offset]] = translation_t1[in[idx_first]+ new_blocks_nodes[i+offset]];
+                new_out[idx+new_blocks_edges[i+offset]] = translation_t1[out[idx_first]+ new_blocks_nodes[i+offset]];
+                if(new_in[idx+new_blocks_edges[i+offset]]<0) printf("KRZYZ1\t%d\t%d\t%d\n",idx+new_blocks_edges[i+offset], i+offset, translation_t1[in[idx_first]+ new_blocks_nodes[i+offset]]);
                 idx_first++;
                 idx_second++;
                 idx++;
@@ -303,8 +305,9 @@ __global__ void crossover(
                 new_w[idx+new_blocks_edges[i+offset]] = w[idx_first];
                 new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_first];
                 new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_first];
-                new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_first]+blocks_nodes[first_pair[i]]];
-                new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_first]+blocks_nodes[first_pair[i]]];
+                new_in[idx+new_blocks_edges[i+offset]] = translation_t1[in[idx_first]+ new_blocks_nodes[i+offset]];
+                if(new_in[idx+new_blocks_edges[i+offset]]<0) printf("KRZYZ1\t%d\t%d\t%d\n",idx+new_blocks_edges[i+offset], i+offset, translation_t1[in[idx_first]+ new_blocks_nodes[i+offset]]);
+                new_out[idx+new_blocks_edges[i+offset]] = translation_t1[out[idx_first]+ new_blocks_nodes[i+offset]];
                 idx_first++;
                 idx++;
             }else{
@@ -312,8 +315,9 @@ __global__ void crossover(
                 new_w[idx+new_blocks_edges[i+offset]] = w[idx_second];
                 new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_second];
                 new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_second];
-                new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_second]+blocks_nodes[second_pair[i]]];
-                new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_second]+blocks_nodes[second_pair[i]]];
+                new_in[idx+new_blocks_edges[i+offset]] = translation_t2[in[idx_second]+ new_blocks_nodes[i+offset]];
+                if(new_in[idx+new_blocks_edges[i+offset]]<0) printf("KRZYZ1\t%d\t%d\t%d\n",idx+new_blocks_edges[i+offset], i+offset, translation_t2[in[idx_second]+ new_blocks_nodes[i+offset]]);
+                new_out[idx+new_blocks_edges[i+offset]] = translation_t2[out[idx_second]+ new_blocks_nodes[i+offset]];
                 idx_second++;
                 idx++;
             }
@@ -324,8 +328,9 @@ __global__ void crossover(
             new_w[idx+new_blocks_edges[i+offset]] = w[idx_first];
             new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_first];
             new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_first];
-            new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_first]+blocks_nodes[first_pair[i]]];
-            new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_first]+blocks_nodes[first_pair[i]]];
+            new_in[idx+new_blocks_edges[i+offset]] = translation_t1[in[idx_first]+ new_blocks_nodes[i+offset]];
+            if(new_in[idx+new_blocks_edges[i+offset]]<0) printf("KRZYZ1\t%d\t%d\t%d\n",idx+new_blocks_edges[i+offset], i+offset, translation_t1[in[idx_first]+ new_blocks_nodes[i+offset]]);
+            new_out[idx+new_blocks_edges[i+offset]] = translation_t1[out[idx_first]+ new_blocks_nodes[i+offset]];
             idx_first++;
             idx++;
         }
@@ -334,8 +339,9 @@ __global__ void crossover(
             new_w[idx+new_blocks_edges[i+offset]] = w[idx_second];
             new_enabled[idx+new_blocks_edges[i+offset]] = enabled[idx_second];
             new_innov[idx+new_blocks_edges[i+offset]] = innov[idx_second];
-            new_in[idx+new_blocks_edges[i+offset]] = translation_t[in[idx_second]+blocks_nodes[second_pair[i]]];
-            new_out[idx+new_blocks_edges[i+offset]] = translation_t[out[idx_second]+blocks_nodes[second_pair[i]]];
+            new_in[idx+new_blocks_edges[i+offset]] = translation_t2[in[idx_second]+ new_blocks_nodes[i+offset]];
+            if(new_in[idx+new_blocks_edges[i+offset]]<0) printf("KRZYZ1\t%d\t%d\t%d\n",idx+new_blocks_edges[i+offset], i+offset, translation_t2[in[idx_second]+ new_blocks_nodes[i+offset]]);
+            new_out[idx+new_blocks_edges[i+offset]] = translation_t2[out[idx_second]+ new_blocks_nodes[i+offset]];
             idx_second++;
             idx++;
         }
@@ -660,9 +666,16 @@ void test_crosover(){
     d_new_in, d_new_out, d_new_w, d_new_enabled, d_new_innov, d_new_translation, d_in, d_out, d_w, d_enabled, d_innov, d_translation);
     
     // tytaj będzie tworzenie potomków
-    int *d_translation_t;
-    cudaMalloc(&d_translation_t, no_nodes * sizeof(int));
+    int *d_translation_t1;
+
+    cudaMalloc(&d_translation_t1, no_nodes * sizeof(int));
+
+    int *d_translation_t2;
     
+
+    cudaMalloc(&d_translation_t2, no_nodes * sizeof(int));
+    // cudaMemset(d_translation_t, 0, (no_nodes) * sizeof(int));
+    // printf("%d\n", no_nodes);
     crossover<<<dimBlockOffsprings, dimBlockOffsprings>>>(
     d_blocks_nodes,
     d_blocks_edges,
@@ -684,7 +697,8 @@ void test_crosover(){
     d_new_innov,
     d_new_translation,
     d_translation,
-    d_translation_t 
+    d_translation_t1,
+    d_translation_t2
     );
 
     // podmianka
@@ -710,7 +724,8 @@ void test_crosover(){
     d_blocks_nodes=d_new_blocks_nodes;
 
     // czyszczenie
-    cudaFree(d_translation_t);
+    cudaFree(d_translation_t1);
+    cudaFree(d_translation_t2);
     cudaFree(d_istance_numbers_seq);
     free(istance_numbers_seq);
     free(h_mask);
