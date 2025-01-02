@@ -1,18 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctime>
-#include <cstdlib>
-#include <cmath>
 #include <curand_kernel.h>
-
-#define WIDTH 800
-#define HEIGHT 600
-#define GAP_R 140
-#define FLOPPY_RADIUS 10
 
 #define POPULATION_COUNT 1000
 #define SURVIVORS_TOURNAMENTS 200
-#define K 100
+#define K 3
 #define BLOCK_SIZE 128
 
 #define MUTATION_T1 12
@@ -20,514 +12,8 @@
 #define MUTATION_W_P 0.1
 int next_node_innov = 8;
 int next_edge_innov = 26;
-
-#define BLOCK_SIZE 128
 // ###### CUMULATED HISTOGRAM BEGIN #######
 #define SECTION_SIZE 512
-
-__global__ void scanKernelX_with_copy(int *Y, int *Y_copy, int *S, int *X, int width)
-{
-    //@@ INSERT CODE HERE
-    __shared__ int in[SECTION_SIZE];
-    if(threadIdx.x + (blockDim.x * blockIdx.x) < width){
-        in[threadIdx.x] = X[threadIdx.x + (blockDim.x * blockIdx.x)];
-    }else{
-        in[threadIdx.x] = 0;
-    }
-    __syncthreads();
-    
-    int result = 0;
-    for(int start = 1; ((start + (blockDim.x * blockIdx.x)) < width) && (start < blockDim.x); start=start*2){
-        if(threadIdx.x>=start){
-            result = in[threadIdx.x] + in[threadIdx.x-start];
-            // printf("it: %d\t(%d, %d)\t%f\t%f\t%f\n",it,threadIdx.x, threadIdx.x+(1<<it) ,in[threadIdx.x] ,in[threadIdx.x+(1<<it)],result);
-        }
-        __syncthreads();
-        if(threadIdx.x>=start){
-            in[threadIdx.x] = result;
-        }
-        //printf("%f\n",in[0]);
-        __syncthreads();
-    }
-    
-    if(threadIdx.x + (blockDim.x * blockIdx.x) < width){
-        Y[threadIdx.x + (blockDim.x * blockIdx.x)] = in[threadIdx.x]; 
-        Y_copy[threadIdx.x + (blockDim.x * blockIdx.x)] = in[threadIdx.x];
-        if(threadIdx.x == (blockDim.x - 1)){
-            S[blockIdx.x] = in[threadIdx.x];
-        }
-    }
-    
-}
-
-__global__ void scanKernelS_with_copy(int *S, int width)
-{
-    //@@ INSERT CODE HERE
-    __shared__ int in[SECTION_SIZE];
-    if(threadIdx.x + (blockDim.x * blockIdx.x) < width){
-        in[threadIdx.x] = S[threadIdx.x + (blockDim.x * blockIdx.x)];
-    }else{
-        in[threadIdx.x] = 0;
-    }
-    __syncthreads();
-
-    int result = 0;
-    for(int start = 1; start < width; start=start*2){
-        if(threadIdx.x>=start){
-            result = in[threadIdx.x] + in[threadIdx.x-start];
-            // printf("it: %d\t(%d, %d)\t%f\t%f\t%f\n",it,threadIdx.x, threadIdx.x+(1<<it) ,in[threadIdx.x] ,in[threadIdx.x+(1<<it)],result);
-        }
-        __syncthreads();
-        if(threadIdx.x>=start){
-            in[threadIdx.x] = result;
-        }
-        //printf("%f\n",in[0]);
-        __syncthreads();
-    }
-    
-    if(threadIdx.x < width){
-        S[threadIdx.x] = in[threadIdx.x]; 
-    }
-}
-
-__global__ void updateYKernel_with_copy(int *Y, int *Y_copy, int *S, int widthY)
-{
-    //@@ INSERT CODE HERE
-    if((blockIdx.x >= 1) && (threadIdx.x + (blockDim.x * blockIdx.x) < widthY)){
-        Y[threadIdx.x + (blockDim.x * blockIdx.x)] += S[blockIdx.x - 1];
-        Y_copy[threadIdx.x + (blockDim.x * blockIdx.x)] = Y[threadIdx.x + (blockDim.x * blockIdx.x)];
-    }
-}
-
-void cumulatedHistogram_with_copy(int *d_Y, int *d_Y_copy, int *d_X, int width)
-{
-    /*
-    input:
-        device vectors:
-            d_X - input
-            d_Y - output
-        width - size of vectors
-    */
-    int *d_S;
-    cudaMalloc(&d_S, ceil((float)width/SECTION_SIZE) * sizeof(int));
-
-    dim3 dimGrid(ceil((float)width/SECTION_SIZE),1,1);
-    dim3 dimBlock(SECTION_SIZE,1,1);
-    
-    scanKernelX_with_copy<<<dimGrid,dimBlock>>>(d_Y, d_Y_copy, d_S, d_X, width);
-
-    dim3 dimGrid2(1,1,1);
-    dim3 dimBlock2(SECTION_SIZE,1,1);
-
-    scanKernelS_with_copy<<<dimGrid2,dimBlock2>>>(d_S, ceil((float)width/SECTION_SIZE));
-    
-    updateYKernel_with_copy<<<dimGrid,dimBlock>>>(d_Y, d_Y_copy, d_S, width);
-
-    cudaFree(d_S);
-}
-// ###### CUMULATED HISTOGRAM END #######
-
-// ###### Reduction boolean count BEGIN #######
-
-int reductionSequential_count_col_size(int *input, int width)
-{
-    int sum = 0;
-    for (int i = 0; i < width; ++i)
-    {
-        sum += input[i];
-    }
-
-    return sum;
-}
-
-__global__ void reductionKernelOp_count_col_size(bool *input, int *output, int width)
-{
-    //@@ INSERT CODE HERE
-    __shared__ int in[BLOCK_SIZE];
-    if(threadIdx.x + (blockDim.x * blockIdx.x) < width){
-        in[threadIdx.x] = (int)(input[threadIdx.x + (blockDim.x * blockIdx.x)]);
-    }else{
-        in[threadIdx.x] = 0;
-    }
-    __syncthreads();
-    int targetlevel = 0;
-    int index = BLOCK_SIZE;
-    while (index >>= 1) ++targetlevel;
-
-    int result = 0;
-    for(int it = 0; it < targetlevel; it++){
-        if(threadIdx.x<(BLOCK_SIZE/(2<<it))){
-            result = in[threadIdx.x] + in[threadIdx.x+(BLOCK_SIZE/(2<<it))];
-            // printf("it: %d\t(%d, %d)\t%f\t%f\t%f\n",it,threadIdx.x, threadIdx.x+(1<<it) ,in[threadIdx.x] ,in[threadIdx.x+(1<<it)],result);
-        }
-        __syncthreads();
-        if((threadIdx.x<(BLOCK_SIZE/(2<<it)))){
-            in[threadIdx.x] = result;
-        }
-        //printf("%f\n",in[0]);
-        __syncthreads();
-    }
-    
-    if(threadIdx.x == 0){
-        output[blockIdx.x] = in[0]; 
-        // printf("%f",in[0]);
-        // printf("\n%d\n",targetlevel);
-    }
-    
-}
-
-int count_col_size(bool* d_enable, int length)
-{
-    //@@ INSERT CODE HERE
-    int *d_output, *h_output;
-    cudaMalloc(&d_output, ceil((float)length/BLOCK_SIZE) * sizeof(int));
-    h_output = (int*)malloc(ceil((float)length/BLOCK_SIZE) * sizeof(int));
-
-    dim3 dimGrid(ceil((float)length/BLOCK_SIZE),1,1);
-    dim3 dimBlock(BLOCK_SIZE,1,1);
-    
-    reductionKernelOp_count_col_size<<<dimGrid,dimBlock>>>(d_enable,d_output,length);
-    
-    cudaMemcpy(h_output, d_output,  ceil((float)length/BLOCK_SIZE)*sizeof(int), cudaMemcpyDeviceToHost);
-
-    int result = reductionSequential_count_col_size(h_output,ceil((float)length/BLOCK_SIZE));
-    cudaFree(d_output);
-    
-    free(h_output);
-    return result;
-}
-// ###### Reduction END #######
-
-// ###### Reduction boolean count BEGIN #######
-
-int reductionSequential_STOP_cryterion(bool *input, int width)
-{
-    bool sum = false;
-    for (int i = 0; i < width; ++i)
-    {
-        sum = sum || input[i];
-    }
-
-    return sum;
-}
-
-__global__ void reductionKernelOp_STOP_cryterion(bool *input, bool *output, int width)
-{
-    //@@ INSERT CODE HERE
-    __shared__ bool in[BLOCK_SIZE];
-    if(threadIdx.x + (blockDim.x * blockIdx.x) < width){
-        in[threadIdx.x] = !(input[threadIdx.x + (blockDim.x * blockIdx.x)]);
-    }else{
-        in[threadIdx.x] = false;
-    }
-    __syncthreads();
-    int targetlevel = 0;
-    int index = BLOCK_SIZE;
-    while (index >>= 1) ++targetlevel;
-
-    bool result = false;
-    for(int it = 0; it < targetlevel; it++){
-        if(threadIdx.x<(BLOCK_SIZE/(2<<it))){
-            result = in[threadIdx.x] || in[threadIdx.x+(BLOCK_SIZE/(2<<it))];
-            // printf("it: %d\t(%d, %d)\t%f\t%f\t%f\n",it,threadIdx.x, threadIdx.x+(1<<it) ,in[threadIdx.x] ,in[threadIdx.x+(1<<it)],result);
-        }
-        __syncthreads();
-        if((threadIdx.x<(BLOCK_SIZE/(2<<it)))){
-            in[threadIdx.x] = result;
-        }
-        //printf("%f\n",in[0]);
-        __syncthreads();
-    }
-    
-    if(threadIdx.x == 0){
-        output[blockIdx.x] = in[0]; 
-        // printf("%f",in[0]);
-        // printf("\n%d\n",targetlevel);
-    }
-    
-}
-
-bool STOP_cryterion(bool* d_collision, int length)
-{
-    //@@ INSERT CODE HERE
-    bool *d_output, *h_output;
-    cudaMalloc(&d_output, ceil((float)length/BLOCK_SIZE) * sizeof(bool));
-    h_output = (bool*)malloc(ceil((float)length/BLOCK_SIZE) * sizeof(bool));
-
-    dim3 dimGrid(ceil((float)length/BLOCK_SIZE),1,1);
-    dim3 dimBlock(BLOCK_SIZE,1,1);
-    
-    reductionKernelOp_STOP_cryterion<<<dimGrid,dimBlock>>>(d_collision,d_output,length);
-    
-    cudaMemcpy(h_output, d_output,  ceil((float)length/BLOCK_SIZE)*sizeof(bool), cudaMemcpyDeviceToHost);
-
-    bool result = reductionSequential_STOP_cryterion(h_output,ceil((float)length/BLOCK_SIZE));
-    cudaFree(d_output);
-    
-    free(h_output);
-    return result;
-}
-// ###### Reduction END #######
-
-// Mnożenie macierzy CSR przez wektor 
-__global__ void SparseMUL(int* column_idx, int* row_pointers, float* weights, float* input_vector, int vector_size, float* output_vector, int output_vector_size){
-    int row = threadIdx.x + (blockDim.x * blockIdx.x);
-    while(row<output_vector_size){
-        float acc = 0;
-        for(int col_idx=row_pointers[row]; col_idx<row_pointers[row+1]; col_idx++){
-            acc += input_vector[column_idx[col_idx]] * weights[col_idx];
-        }
-        output_vector[row] = 1/(1+exp(-acc)); // sigmoida
-        
-        row += blockDim.x * gridDim.x;
-    }
-}
-
-__global__ void updateRowPointers(int *row_pointers, int *out, int *blocks_edges, int *blocks_nodes, int no_instances, bool* enable){
-    int inst = threadIdx.x + (blockDim.x * blockIdx.x);
-    while(inst<no_instances){
-        int idx = inst; // granulacja na poziomie idx per kernel
-        for(int i=blocks_edges[idx]; i<blocks_edges[idx+1]; i++){
-            if (enable[i])
-                row_pointers[(out[i])+blocks_nodes[idx]+1] +=1;
-        }
-        inst += blockDim.x * gridDim.x;
-    }
-    
-}
-
-__global__ void updateCol_idx_weights(int *row_pointers_t, float *weights, int *col_idx, int *in, float *w, int *out, int *blocks_edges, int *blocks_nodes, int no_instances, bool* enable){
-    int inst = threadIdx.x + (blockDim.x * blockIdx.x);
-    while(inst<no_instances){
-        int idx = inst;
-        for(int i=blocks_edges[inst]; i<blocks_edges[inst+1]; i++){
-            if (enable[i]){
-                int temp = row_pointers_t[out[i] +blocks_nodes[idx]];
-                row_pointers_t[out[i]+blocks_nodes[idx]] +=1; // no need for atomic add because [blocks_nodes[idx], blocks_nodes[idx]+1] is only for idx
-                col_idx[temp] = in[i]+blocks_nodes[idx]; // jeżeli będą podwójne to nie ma znaczenia przy mnożeniu macierzowym
-                weights[temp] = w[i];
-            }
-        }
-        inst += blockDim.x * gridDim.x;
-    }
-}
-
-
-
-class Pipe{
-private:
-    int y_upper_pipe;
-    int y_bottom_pipe;
-    int x_pipe;
-    int r_pipe;
-    int vel;
-
-public:
-    Pipe(int y_upper_pipe_, int y_bottom_pipe_, int x_pipe_, int r_pipe_, int vel_) : y_bottom_pipe(y_bottom_pipe_), y_upper_pipe(y_upper_pipe_), x_pipe(x_pipe_), r_pipe(r_pipe_), vel(vel_) {};
-
-    Pipe(const Pipe& other) 
-        : y_upper_pipe(other.y_upper_pipe), y_bottom_pipe(other.y_bottom_pipe),
-          x_pipe(other.x_pipe), r_pipe(other.r_pipe), vel(other.vel) {
-    }
-    bool update(){
-        x_pipe -= vel;
-        if(x_pipe > -10) return 0;
-        return 1;
-    };
-    int getX() const { return x_pipe; }
-    int getYUpper() const { return y_upper_pipe; }
-    int getYBottom() const { return y_bottom_pipe; }
-    int getR() const { return r_pipe; }
-    int getVelocity() const { return vel; }
-    ~Pipe() = default;
-};
-
-
-__global__ void update_colisions(bool* colision, int* rewards, float* y, float x, int y_upper_pipe, int y_bottom_pipe, int x_pipe, int r_pipe, int no_instances){
-    int i = threadIdx.x + (blockDim.x * blockIdx.x);
-    while(i<no_instances){
-        // printf("%f\n",y[i]);
-        if((((x + FLOPPY_RADIUS >=(x_pipe-r_pipe)) && (x-FLOPPY_RADIUS)<=x_pipe+r_pipe) && (y[i]-FLOPPY_RADIUS<=y_upper_pipe || y[i]+FLOPPY_RADIUS>=HEIGHT-y_bottom_pipe)) || (y[i]>=HEIGHT-FLOPPY_RADIUS || y[i]<=0+FLOPPY_RADIUS)){
-            colision[i] = true;
-        }
-        else{
-            if(!colision[i]){
-                rewards[i]++;
-                
-            }
-        }
-        i += blockDim.x * gridDim.x;
-    }
-}
-
-__global__ void update_step(float* vel_y, float* y, float* vect_out,int *blocks_nodes, int no_instances){
-    int i = threadIdx.x + (blockDim.x * blockIdx.x);
-    while(i<no_instances){
-        float g = 0.1;
-        float flop_v = 4;
-        vel_y[i] += g;
-        if(vect_out[blocks_nodes[i]]>0.5){
-            vel_y[i] = -flop_v;
-        }
-        y[i]+=vel_y[i];
-        i += blockDim.x * gridDim.x;
-    }
-}
-
-__global__ void update_instance_inputs(int *blocks_nodes, float* vect_in, int y_upper_pipe, int y_bottom_pipe, int x_pipe, float x, float* y, int no_instances){
-    int i = threadIdx.x + (blockDim.x * blockIdx.x); // zrównoleglenie na instancje
-    while(i<no_instances){
-        float x1 = (x_pipe - x)/400.0;
-        float x2 = (y_bottom_pipe - y[i])/600.0;
-        float x3 = (y[i] - y_upper_pipe)/600.0;
-        vect_in[blocks_nodes[i] + 1] = x1;
-        vect_in[blocks_nodes[i] + 2] = x2;
-        vect_in[blocks_nodes[i] + 3] = x3;
-        // printf("%d\t%d\t%f\t%f\t%f\n",i, blocks_nodes[i],vect_in[blocks_nodes[i] + 1],vect_in[blocks_nodes[i] + 2],vect_in[blocks_nodes[i] + 3]);
-        i += blockDim.x * gridDim.x;
-    }
-    
-}
-
-__global__ void initialize(float* array, float value, int size) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < size) {
-        array[idx] = value;
-    }
-}
-
-
-void symulate(int *blocks_nodes, int* column_idx, int* row_pointers, float* weights, int* rewards, int vector_size, int no_instances, int max_iterations, int no_nodes, int no_edges){
-    // inicjalizacja
-    Pipe now = Pipe(300,HEIGHT-(300 + 2*GAP_R),440,40,1);
-    Pipe next = Pipe(120,HEIGHT-(120 + 2*GAP_R),880,40,1);
-    Pipe prev = Pipe(300,HEIGHT-(300 + 2*GAP_R),440,40,1);
-    // bool* isFlopping;
-    // isFlopping = (bool*) malloc((no_instances) * sizeof(bool));
-    float x = 120; // takie same x dla populaci
-    float* d_y;
-    dim3 dimGrid(ceil((float)(no_instances)/BLOCK_SIZE),1,1);
-    dim3 dimBlock(BLOCK_SIZE,1,1);
-    cudaMalloc(&d_y, (no_instances) * sizeof(float));
-    initialize<<<dimGrid, dimBlock>>>(d_y, 50.0f, no_instances);
-
-    float* d_vel_y;
-    cudaMalloc(&d_vel_y, (no_instances) * sizeof(float));
-    cudaMemset(d_vel_y, 0.0, (no_instances) * sizeof(float));
-
-    bool* d_colision;// inicialize to false
-    cudaMalloc(&d_colision, (no_instances) * sizeof(bool));
-    cudaMemset(d_colision, false, (no_instances) * sizeof(bool));
-
-    // internal state vectors:
-    float* d_vect_in;
-    float* d_vect_out;
-    float* d_vect_temp;
-    
-
-    cudaMalloc(&d_vect_in, (no_nodes) * sizeof(float));
-    cudaMemset(d_vect_in, 0.0, (no_nodes) * sizeof(float));
-    cudaMalloc(&d_vect_out, (no_nodes) * sizeof(float));
-    cudaMemset(d_vect_out, 0.0, (no_nodes) * sizeof(float));
-    // koniec inicjalizacji
-    
-    for(int it = 0; it < max_iterations; it++){ // główna pętla
-        
-        update_colisions<<<dimGrid,dimBlock>>>(d_colision, rewards, d_y, x, now.getYUpper(), now.getYBottom(), now.getX(), now.getR(), no_instances);
-        bool STOP = STOP_cryterion(d_colision, no_instances);
-        // printf("%d\t%d\n", STOP, it);
-        if(!STOP) break;
-        // #### UPDATE ENV ####
-        if(x - FLOPPY_RADIUS > now.getX() + now.getR()){
-            prev = now;
-            now = next;
-            int randomNum = rand() %(HEIGHT - 2*GAP_R) + GAP_R;
-            next = Pipe(randomNum - GAP_R,HEIGHT - (randomNum + GAP_R),880,40,1);
-        }
-        // #### UPDATE ENV END ####
-        // #### Control ####
-        d_vect_temp = d_vect_in;
-        d_vect_in = d_vect_out;
-        d_vect_out = d_vect_temp; // swap important as not to allocate memory (everything on device side)
-        cudaMemset(d_vect_out, 0.0, (no_nodes) * sizeof(float));
-
-        update_instance_inputs<<<dimGrid,dimBlock>>>(blocks_nodes, d_vect_in, now.getYUpper(), now.getYBottom(), now.getX(), x, d_y, no_instances);
-
-        dim3 dimGrid2(ceil((float)(no_nodes)/BLOCK_SIZE),1,1);
-        dim3 dimBlock2(BLOCK_SIZE,1,1);
-        SparseMUL<<<dimGrid2, dimBlock2>>>(column_idx, row_pointers, weights, d_vect_in, no_nodes, d_vect_out, no_nodes);
-
-        // #### update step ####
-        update_step<<<dimGrid,dimBlock>>>(d_vel_y, d_y, d_vect_out, blocks_nodes, no_instances);
-
-        prev.update();
-        now.update();
-        next.update();
-    }
-    cudaFree(d_y);
-    cudaFree(d_vel_y);
-    cudaFree(d_colision);
-    cudaFree(d_vect_in);
-    cudaFree(d_vect_out);
-}
-
-void symulate(
-    int *d_in,
-    int *d_out,
-    float *d_w,
-    bool *d_enabled,
-    int *d_innov,
-    int *d_blocks_edges,
-    int *d_translation,
-    int *d_blocks_nodes,
-    int* d_rewards,
-    int no_instances,
-    int no_nodes,
-    int no_edges,
-    int max_it
-){
-    // ##### PREPARATION TO SYMULATION #####
-    // TO CSR MATRIX
-    int colsize = count_col_size(d_enabled, no_edges); // już zrównoleglone za pomocą redukcji
-
-    int *d_col_idx; // size w
-    float *d_weights; // size w
-    int *d_row_pointers; //size translation+1
-    
-    cudaMalloc(&d_col_idx, (colsize) * sizeof(int));
-    cudaMalloc(&d_weights, (colsize) * sizeof(float));
-    cudaMalloc(&d_row_pointers, (no_nodes + 1) * sizeof(int));
-
-    cudaMemset(d_row_pointers, 0, (no_nodes + 1) * sizeof(int));
-
-    dim3 dimGrid(ceil((float)(no_instances)/BLOCK_SIZE),1,1);
-    dim3 dimBlock(BLOCK_SIZE,1,1);
-
-    updateRowPointers<<<dimGrid,dimBlock>>>(d_row_pointers, d_out, d_blocks_edges, d_blocks_nodes, no_instances, d_enabled);
-
-    
-
-    int *d_row_pointers_t;
-    cudaMalloc(&d_row_pointers_t, (no_nodes + 1) * sizeof(int));
-
-    cumulatedHistogram_with_copy(d_row_pointers, d_row_pointers_t, d_row_pointers, (no_nodes + 1));
-
-    
-
-    updateCol_idx_weights<<<dimGrid,dimBlock>>>(d_row_pointers_t, d_weights, d_col_idx, d_in, d_w, d_out, d_blocks_edges, d_blocks_nodes, no_instances, d_enabled);
-    cudaFree(d_row_pointers_t); // important free
-    
-    // int* h_array = (int*)malloc((colsize) * sizeof(int));
-    // cudaMemcpy(h_array, d_col_idx, (colsize) * sizeof(int), cudaMemcpyDeviceToHost);
-    // for(int i=0; i<(colsize); i++) printf("%d\t", h_array[i]);
-    // printf("\n");
-
-    cudaMemset(d_rewards, -1, (no_instances) * sizeof(int));//set to -1
-
-    
-    // symulate
-    symulate(d_blocks_nodes, d_col_idx, d_row_pointers, d_weights, d_rewards, no_nodes, no_instances, max_it, no_nodes, no_edges); // max iteration to 10
-}
 
 __global__ void scanKernelX(int *Y, int *S, int *X, int width)
 {
@@ -1264,15 +750,15 @@ void get_new_population(
     next_edge_innov,
     next_node_innov
     );
-
     next_node_innov += MUTATION_T1;
     next_edge_innov += MUTATION_T1*2 + MUTATION_T2;
-
     cudaFree(d_state);
+
     NGrid = ceil((float)(no_edges)/BLOCK_SIZE);
     cudaMalloc(&d_state, NGrid * BLOCK_SIZE * sizeof(curandState));
     initialize_rng<<<NGrid, BLOCK_SIZE>>>(d_state, time(0));
     mutate_weights<<<NGrid, BLOCK_SIZE>>>(d_state, d_new_w, no_edges);
+    
     // podmianka
     cudaFree(d_in);
     cudaFree(d_out);
@@ -1307,8 +793,7 @@ void get_new_population(
     // end czyszczenie
 }
 
-void main_loop(){
-    // initial population file
+void test_crosover(){
     FILE *plik = fopen("crosoverCOO_test.txt", "r");
     if (plik == NULL) {
         return;
@@ -1350,7 +835,6 @@ void main_loop(){
     int *translation_t - tymczasowa funkcja mapująca stare indexy w nowe używana w krzyżowaniu (długość translation)
     */
 
-    // init population:
     int *in;
     int *out;
     float *w;
@@ -1399,9 +883,23 @@ void main_loop(){
     for(int i = 0; i<blocks_edges[no_instances]; i++){
         fscanf(plik, "%f", w+i);
     }
-    
+    int rewards[5] = {51,23,12,33,41};// for tests
+    // end of init
+    // printf("\nold block nodes: ");
 
-    // ###### inicializacja i alokacja na Device ######
+    // for(int i=0; i<6; i++){
+    //     printf("%d\t", blocks_nodes[i]);
+    // }
+    // printf("\nold block edges: ");
+    // for(int i=0; i<6; i++){
+    //     printf("%d\t", blocks_edges[i]);
+    // }
+    // printf("\ninnovation numbers: ");
+    // for(int i=0; i<24; i++){
+    //     printf("%d\t", innov[i]);
+    // }
+    // printf("\n");
+    // ###### inicializacja i alokacja ######
     int *d_in;
     int *d_out;
     float *d_w;
@@ -1412,7 +910,7 @@ void main_loop(){
     int *d_translation;
     int *d_blocks_nodes;
 
-    int *d_rewards_init;
+    int *d_rewards;
     // alocation
     cudaMalloc(&d_in, (blocks_edges[no_instances]) * sizeof(int));
     cudaMalloc(&d_out, (blocks_edges[no_instances]) * sizeof(int));
@@ -1424,7 +922,7 @@ void main_loop(){
     cudaMalloc(&d_translation, (blocks_nodes[no_instances]) * sizeof(int));
     cudaMalloc(&d_blocks_nodes, (no_instances+1) * sizeof(int));
 
-    cudaMalloc(&d_rewards_init, (no_instances) * sizeof(int));
+    cudaMalloc(&d_rewards, (no_instances) * sizeof(int));
 
     // data copy
     cudaMemcpy(d_in, in, (blocks_edges[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
@@ -1437,10 +935,10 @@ void main_loop(){
     cudaMemcpy(d_translation, translation, (blocks_nodes[no_instances]) * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(d_blocks_nodes, blocks_nodes, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
 
-    cudaMemset(d_rewards_init, 0, (no_instances) * sizeof(int));
+    cudaMemcpy(d_rewards, rewards, (no_instances+1) * sizeof(int), cudaMemcpyHostToDevice);
     
     //###### inicializacja i alokacja END ######
-    // ##### powielenie populacji #####
+    // ##### to do kopiowania #####
     int no_edges;
     int no_nodes;
     get_new_population(
@@ -1452,47 +950,34 @@ void main_loop(){
     &d_blocks_edges,
     &d_translation,
     &d_blocks_nodes,
-    d_rewards_init,
+    d_rewards,
     no_instances,
     &no_nodes,
     &no_edges
     );
 
 
-    // inicjalizacja zmiennych:
-    // int *new_in;
-    // int *new_out;
-    // float *new_w;
-    // bool *new_enabled;
-    // int *new_innov;
+    // sprawdzenie:
+    int *new_in;
+    int *new_out;
+    float *new_w;
+    bool *new_enabled;
+    int *new_innov;
 
-    // int *new_translation; // 
-    // int *new_blocks_nodes;
-    // int new_no_instances = POPULATION_COUNT;
+    int *new_translation; // 
+    int *new_blocks_nodes;
+    int new_no_instances = POPULATION_COUNT;
 
-    // new_blocks_nodes = (int*)malloc((1+POPULATION_COUNT)*sizeof(int)); // 0 | 1 do no_survivors | no_survivors + 1 do no_survivors + no_offsprings | no_survivors + no_offsprings + 1 do no_survivors + no_offsprings + no_mutation 
+    new_blocks_nodes = (int*)malloc((1+POPULATION_COUNT)*sizeof(int)); // 0 | 1 do no_survivors | no_survivors + 1 do no_survivors + no_offsprings | no_survivors + no_offsprings + 1 do no_survivors + no_offsprings + no_mutation 
      
-    int *d_rewards;
-    cudaMalloc(&d_rewards, (POPULATION_COUNT) * sizeof(int));
+    
 
-    for(int i=0; i<100; i++){ // here number of iterations
-        cudaMemset(d_rewards, 0, (POPULATION_COUNT) * sizeof(int));
-        symulate(
-        d_in,
-        d_out,
-        d_w,
-        d_enabled,
-        d_innov,
-        d_blocks_edges,
-        d_translation,
-        d_blocks_nodes,
-        d_rewards,
-        POPULATION_COUNT,
-        no_nodes,
-        no_edges,
-        10000
-        );
-
+    for(int i=0; i<10; i++){
+        int *d_rewards2;
+        cudaMalloc(&d_rewards2, (POPULATION_COUNT) * sizeof(int));
+    
+        cudaMemset(d_rewards2, 5, (POPULATION_COUNT) * sizeof(int));
+        cudaMemset(d_rewards2, 0, sizeof(int));
         get_new_population(
         &d_in,
         &d_out,
@@ -1502,79 +987,77 @@ void main_loop(){
         &d_blocks_edges,
         &d_translation,
         &d_blocks_nodes,
-        d_rewards,
+        d_rewards2,
         POPULATION_COUNT,
         &no_nodes,
         &no_edges
         );
 
-        // new_in = (int*)malloc(no_edges*sizeof(int));
-        // new_out = (int*)malloc(no_edges*sizeof(int));
-        // new_w = (float*)malloc(no_edges*sizeof(float));
-        // new_enabled = (bool*)malloc(no_edges*sizeof(bool));
-        // new_innov = (int*)malloc(no_edges*sizeof(int));
-        // new_translation = (int*)malloc(no_nodes*sizeof(int));
+        cudaFree(d_rewards2);
+        new_in = (int*)malloc(no_edges*sizeof(int));
+        new_out = (int*)malloc(no_edges*sizeof(int));
+        new_w = (float*)malloc(no_edges*sizeof(float));
+        new_enabled = (bool*)malloc(no_edges*sizeof(bool));
+        new_innov = (int*)malloc(no_edges*sizeof(int));
+        new_translation = (int*)malloc(no_nodes*sizeof(int));
 
-        // cudaMemcpy(new_in, d_in, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
-        // cudaMemcpy(new_out, d_out, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
-        // cudaMemcpy(new_w, d_w, no_edges * sizeof(float), cudaMemcpyDeviceToHost);
-        // cudaMemcpy(new_enabled, d_enabled, no_edges * sizeof(bool), cudaMemcpyDeviceToHost);
-        // cudaMemcpy(new_innov, d_innov, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_in, d_in, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_out, d_out, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_w, d_w, no_edges * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_enabled, d_enabled, no_edges * sizeof(bool), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_innov, d_innov, no_edges * sizeof(int), cudaMemcpyDeviceToHost);
 
         
-        // cudaMemcpy(new_translation, d_translation, no_nodes * sizeof(int), cudaMemcpyDeviceToHost);
-        // cudaMemcpy(new_blocks_nodes, d_blocks_nodes, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
-        // printf("\nnew block nodes: ");
+        cudaMemcpy(new_translation, d_translation, no_nodes * sizeof(int), cudaMemcpyDeviceToHost);
+        cudaMemcpy(new_blocks_nodes, d_blocks_nodes, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
+        printf("\nnew block nodes: ");
 
-        // for(int i=0; i<new_no_instances+1; i++){
-        //     printf("%d\t", new_blocks_nodes[i]);
-        // }
-        // int *new_blocks_edges;
-        // new_blocks_edges = (int*)malloc((1+POPULATION_COUNT)*sizeof(int));
-        // cudaMemcpy(new_blocks_edges, d_blocks_edges, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
-        // printf("\nnew block edges: ");
-        // for(int i=0; i<new_no_instances+1; i++){
-        //     printf("%d\t", new_blocks_edges[i]);
-        // }
+        for(int i=0; i<new_no_instances+1; i++){
+            printf("%d\t", new_blocks_nodes[i]);
+        }
+        int *new_blocks_edges;
+        new_blocks_edges = (int*)malloc((1+POPULATION_COUNT)*sizeof(int));
+        cudaMemcpy(new_blocks_edges, d_blocks_edges, (new_no_instances+1) * sizeof(int), cudaMemcpyDeviceToHost);
+        printf("\nnew block edges: ");
+        for(int i=0; i<new_no_instances+1; i++){
+            printf("%d\t", new_blocks_edges[i]);
+        }
         
-        // printf("\nnew translation: ");
-        // for(int i=0; i<no_nodes; i++){
-        //     printf("%d\t", new_translation[i]);
-        // }
-        // printf("\nnew in: ");
-        // for(int i=0; i<no_edges; i++){
-        //     printf("%d\t", new_in[i]);
-        // }
+        printf("\nnew translation: ");
+        for(int i=0; i<no_nodes; i++){
+            printf("%d\t", new_translation[i]);
+        }
+        printf("\nnew in: ");
+        for(int i=0; i<no_edges; i++){
+            printf("%d\t", new_in[i]);
+        }
 
-        // printf("\nnew out: ");
-        // for(int i=0; i<no_edges; i++){
-        //     printf("%d\t", new_out[i]);
-        // }
+        printf("\nnew out: ");
+        for(int i=0; i<no_edges; i++){
+            printf("%d\t", new_out[i]);
+        }
 
-        // printf("\nnew innov: ");
-        // for(int i=0; i<no_edges; i++){
-        //     printf("%d\t", new_innov[i]);
-        // }
-        // // printf("%d\n",i);
-        // free(new_in);
-        // free(new_out);
-        // free(new_w);
-        // free(new_enabled);
-        // free(new_innov);
-        // free(new_translation);
-        int rew_first;
-        cudaMemcpy(&rew_first, d_rewards, sizeof(int), cudaMemcpyDeviceToHost);
-        printf("number of nodes: %d\tnumber of edges: %d\tfirst floppy score: %d\n", no_nodes, no_edges, rew_first);
+        printf("\nnew innov: ");
+        for(int i=0; i<no_edges; i++){
+            printf("%d\t", new_innov[i]);
+        }
+        // printf("%d\n",i);
+        free(new_in);
+        free(new_out);
+        free(new_w);
+        free(new_enabled);
+        free(new_innov);
+        free(new_translation);
     }
     
 
     
-    // new_in = (int*)malloc(no_edges*sizeof(int));
-    // new_out = (int*)malloc(no_edges*sizeof(int));
-    // new_w = (float*)malloc(no_edges*sizeof(float));
-    // new_enabled = (bool*)malloc(no_edges*sizeof(bool));
-    // new_innov = (int*)malloc(no_edges*sizeof(int));
-    // new_translation = (int*)malloc(no_nodes*sizeof(int));
+    new_in = (int*)malloc(no_edges*sizeof(int));
+    new_out = (int*)malloc(no_edges*sizeof(int));
+    new_w = (float*)malloc(no_edges*sizeof(float));
+    new_enabled = (bool*)malloc(no_edges*sizeof(bool));
+    new_innov = (int*)malloc(no_edges*sizeof(int));
+    new_translation = (int*)malloc(no_nodes*sizeof(int));
     
 
 
@@ -1616,9 +1099,7 @@ void main_loop(){
     //     printf("%d\t", (int)new_enabled[i]);
     // }
     // printf("\n");
-
     // tutaj free TODO:
-    cudaFree(d_rewards);
 
 }
 
@@ -1626,5 +1107,5 @@ void main_loop(){
 
 
 int main(){
-    main_loop();
+    test_crosover();
 }
