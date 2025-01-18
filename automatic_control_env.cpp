@@ -8,7 +8,7 @@
 
 #define WIDTH 800
 #define HEIGHT 600
-#define GAP_R 80
+#define GAP_R 75
 class FloppyBird{
 private:
     float flop_v = 4;

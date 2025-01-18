@@ -1,7 +1,7 @@
 # CUDA_NEAT
 
 
-## SFML Enviroment:
+## Sterowanie manualne:
 Pod Windows:
 
 1. Pobierz pliki SFML ze [strony](https://www.sfml-dev.org/download/)
@@ -17,11 +17,67 @@ Pod Windows:
    ./manual_control_env.exe
    ```
 
+Pod Linux
+
+1. ``` bash
+    sudo apt-get install libsfml-dev
+    ```
+2.  ``` bash
+    g++ -c manual_control_env.cpp
+    ```
+
+3. ``` bash
+    g++ manual_control_env.o -o manual_control_env -lsfml-graphics -lsfml-window -lsfml-system
+    ```
+
+4. ``` bash
+    ./manual_control_env
+    ```
+
+## Uczenie na CUDA:
+kompilacja:
+``` bash
+nvcc ./finalCUDA.cu -o finalCUDA.exe
+```
+uruchomienie:
+```
+./finalCUDA.exe
+```
+## Symulacja nauczonej sieci:
+Pod Windows:
+
+1. Pobierz pliki SFML ze [strony](https://www.sfml-dev.org/download/)
+
+2.  ``` shell
+    g++ -c automatic_control_env.cpp -I <ścieżka do SFML/include>
+    ```
+
+3.  ``` shell
+    g++ automatic_control_env.o -o automatic_control_env -L <ścieżka do SFML\lib> -lsfml-graphics -lsfml-window -lsfml-system -lopengl32 -lwinmm -lgdi32
+    ```
+4. ``` shell
+   ./automatic_control_env.exe
+   ```
+
+Pod Linux
+
+1. ``` bash
+    sudo apt-get install libsfml-dev
+    ```
+2.  ``` bash
+    g++ -c automatic_control_env.cpp
+    ```
+
+3. ``` bash
+    g++ automatic_control_env.o -o automatic_control_env -lsfml-graphics -lsfml-window -lsfml-system
+    ```
+
+4. ``` bash
+    ./automatic_control_env
+    ```
+
 ## Algoritm:
-1. inicjalizacja populacji startowej (trywialna inicjalizacja tylko wejścia i wyjscia jako wierchołki grafu a połączenia wszystkie wejścia z wyjściami)
-    * inicjalizacja innovation number [Host]
-    * inicjalizacja połączeń jako kodowanie COO dla tablic weight, in, out [Host] lub [Device]
-    * inicjalizacja tablicy translations [Host] lub [Device]
+1. inicjalizacja populacji startowej z pliku crosoverCOO_test.txt
 2. Przygotowania do symulacji:
     * zamienienie macierzy COO na CSR (nie jest wymagana zachowana kolejność kolumn w wierszach) [Device]
     * alokacja pamięci dla wejścia i wyjścia (pamięć długości tablicy translations) (wyzerowanie) [Host]

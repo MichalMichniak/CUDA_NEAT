@@ -7,7 +7,7 @@
 
 #define WIDTH 800
 #define HEIGHT 600
-#define GAP_R 80
+#define GAP_R 75
 #define FLOPPY_RADIUS 10
 
 #define MAX_ITERATION_GOAL 100000
