@@ -7,20 +7,20 @@
 
 #define WIDTH 800
 #define HEIGHT 600
-#define GAP_R 140
+#define GAP_R 80
 #define FLOPPY_RADIUS 10
 
 #define MAX_ITERATION_GOAL 100000
 
 #define POPULATION_COUNT 1000
-#define SURVIVORS_TOURNAMENTS 200
-#define K 100
+#define SURVIVORS_TOURNAMENTS 600
+#define K 200
 #define BLOCK_SIZE 128
 
 
 #define MUTATION_T1 12
 #define MUTATION_T2 35
-#define MUTATION_W_P 0.1
+#define MUTATION_W_P 0.05
 int next_node_innov = 8;
 int next_edge_innov = 26;
 
