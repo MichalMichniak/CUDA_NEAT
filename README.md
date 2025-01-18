@@ -1,6 +1,10 @@
 # CUDA_NEAT
 
 
+https://github.com/user-attachments/assets/6f985eef-96ab-4858-bd4c-d256df41f264
+
+
+
 ## Sterowanie manualne:
 Pod Windows:
 
